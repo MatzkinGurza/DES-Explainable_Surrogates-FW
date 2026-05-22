@@ -3,11 +3,9 @@ Repositório dedicado ao TCC do curso de Engenharia Mecatrônica e Departamento 
 
 
 # Framework de Metamodelagem Explicável para Análise Paramétrica de Sistemas de Eventos Discretos
+TCC — Escola Politécnica da Universidade de São Paulo (POLI-USP) 
 
-> **TCC — Escola Politécnica da Universidade de São Paulo (POLI-USP)**  
 
-
----
 
 ## 📋 Sumário
 
