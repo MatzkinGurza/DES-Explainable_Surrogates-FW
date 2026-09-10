@@ -1,0 +1,16 @@
+# scenario_real.yaml
+# Cenário real — estudo de caso com dados/modelo de sistema real.
+#
+# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
+# respectivos intervalos para o DoE, respostas de interesse e número
+# de réplicas por ponto de projeto.
+
+scenario:
+  name: scenario_real
+  description: "Estudo de caso real"
+
+factors: []
+
+responses: []
+
+replications: 1

@@ -1,0 +1,16 @@
+# scenario_01_serial.yaml
+# Cenário 1 — linha de produção serial (baseline).
+#
+# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
+# respectivos intervalos para o DoE, respostas de interesse e número
+# de réplicas por ponto de projeto.
+
+scenario:
+  name: scenario_01_serial
+  description: "Linha de produção serial (baseline)"
+
+factors: []
+
+responses: []
+
+replications: 1

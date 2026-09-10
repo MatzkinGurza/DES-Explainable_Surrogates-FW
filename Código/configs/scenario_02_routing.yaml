@@ -1,0 +1,16 @@
+# scenario_02_routing.yaml
+# Cenário 2 — roteamento/desvios entre estações.
+#
+# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
+# respectivos intervalos para o DoE, respostas de interesse e número
+# de réplicas por ponto de projeto.
+
+scenario:
+  name: scenario_02_routing
+  description: "Roteamento com desvios entre estações"
+
+factors: []
+
+responses: []
+
+replications: 1
