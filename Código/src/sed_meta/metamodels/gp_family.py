@@ -482,13 +482,24 @@ def build_smt_kriging(
     """Kriging do SMT — homocedástico, e dentro do ecossistema do SMT.
 
     eval_noise=True É DESVIO DELIBERADO DO DEFAULT DO SMT (que é False).
-    Com eval_noise=False o KRG INTERPOLA: passa exatamente por cada ponto de
-    treino e devolve variância ~0 ali. Verificado na prática ao montar este
-    módulo — num teste sintético com ruído σ=0.05, o KRG default devolveu
-    RMSE de treino 0.0000, ou seja, absorveu o ruído inteiro como se fosse
-    sinal. Para resposta de simulação estocástica isso é errado pelo mesmo
-    motivo do WhiteKernel em build_sklearn_gp(). Só volte a False se algum
-    dia este metamodelo for usado sobre resposta determinística.
+    Com eval_noise=False o KRG trata a resposta como EXATA: não estima
+    nível de ruído, e o único amortecimento que sobra é o `nugget`
+    numérico. O sintoma prático mais confiável não é o RMSE de treino — o
+    otimizador de hiperparâmetros às vezes encontra sozinho uma solução
+    suave, e num sintético de 3 fatores medido ao montar este módulo os
+    dois ajustes deram RMSE de treino parecido (0.153 contra 0.150) — e sim
+    a INCERTEZA REPORTADA: com eval_noise=False o desvio preditivo médio
+    caiu para cerca de 60% do outro (0.016 contra 0.028 nos pontos de
+    treino). Ou seja, o modelo fica confiante demais.
+
+    Isso importa porque a variância preditiva é metade do produto desta
+    família (ver docstring do módulo): um KRG que subestima a própria
+    incerteza atrapalha exatamente onde ele deveria ajudar. Em espaços de
+    dimensão maior o efeito pode ir além disso e virar interpolação de
+    fato, com RMSE de treino ~0 — observado num probe de 5 fatores.
+
+    Mesmo motivo do WhiteKernel em build_sklearn_gp(). Só volte a False se
+    algum dia este metamodelo for usado sobre resposta determinística.
 
     Lembrete da tensão (a) no docstring do módulo: esta é a variante que
     mantém a Fase 5 dentro do smt-explainability.
