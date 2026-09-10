@@ -1,0 +1,59 @@
+# ============================================================
+# .gitignore — raiz do TCC (Código/ + Monografia/)
+# ============================================================
+
+# --- Ambiente virtual ---------------------------------------
+venv/
+.venv/
+env/
+ENV/
+
+# --- Monografia: só o PDF final é versionado -----------------
+# Ignora tudo dentro de Monografia/ (fontes .tex, .bib, images/ e
+# todos os artefatos de compilação do LaTeX) e reabre a exceção
+# apenas para main.pdf.
+Monografia/*
+!Monografia/main.pdf
+
+# --- Saída versionada por execução — não versionar -----------
+runs/
+mlruns/
+outputs/
+
+# --- Caches --------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.ipynb_checkpoints/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# --- Build / packaging ---------------------------------------
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# --- Excel / ProModel: temporários e lockfiles ---------------
+~$*.xlsx
+~$*.xls
+*.tmp
+
+# --- Sistema operacional / editores --------------------------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.swp

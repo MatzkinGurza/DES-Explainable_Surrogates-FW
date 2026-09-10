@@ -1,0 +1,54 @@
+# ============================================================
+# requirements.txt — Framework de Metamodelagem Explicável para SED
+# ============================================================
+ 
+# --- Núcleo científico -----------------------------------------
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13                    # scipy.stats.qmc: LatinHypercube, Sobol
+ 
+# --- Fase 1: DoE --------------------------------------------------
+smt>=2.14                      # smt.sampling_methods.LHS(criterion="ese")
+SALib>=1.5                     # índices de Sobol (triangulação independente do SMT-EX)
+pyDOE3>=1.6                    # screening: fatorial fracionado / Plackett-Burman
+ 
+# --- Fase 2: interface com o simulador (ProModel) ------------------
+openpyxl>=3.1                  # leitura/escrita do cockpit .xlsx trocado com o ProModel
+ 
+# --- Ponte Fase 2 -> Fase 3: preprocessing --------------------------
+joblib>=1.4                    # persistência do PreprocessingPipeline ajustado em runs/<run_id>/
+                               # (vem junto com o scikit-learn, mas é importado direto)
+
+# --- Fase 3: metamodelos -------------------------------------------
+scikit-learn>=1.5              # ColumnTransformer/OneHotEncoder (preprocessing) + os metamodelos
+                               # LinearRegression, PolynomialFeatures, RandomForest, MLPRegressor, CV
+xgboost>=3.4                   # GBT (quarta família de metamodelo)
+hetgpy>=1.0                    # Processo Gaussiano heterocedástico (correto para SED estocástico)
+ 
+# --- Fase 5: XAI ----------------------------------------------------
+smt-explainability>=0.3        # SHAP/PDP/ICE/Sobol integrados ao SMT
+shap>=0.52                     # TreeExplainer / KernelExplainer (fonte independente do SMT-EX)
+mapie>=1.5                     # conformal prediction (incerteza para modelos sem UQ nativa)
+ 
+# --- Configuração e validação de schema -----------------------------
+pydantic>=2.13                 # validação dos YAMLs de cenário
+PyYAML>=6.0
+ 
+# --- Rastreabilidade e reprodutibilidade (RNF) -----------------------
+mlflow>=3.16                   # tracking de config/métricas/artefatos por execução
+structlog>=25.1                # logging estruturado, alternativa/complemento ao MLflow
+ 
+# --- Visualização (relatórios, PDP/ICE, figuras da monografia) -------
+matplotlib>=3.9
+seaborn>=0.13
+ 
+# --- CLI --------------------------------------------------------------
+click>=8.1                     # scripts/run_*.py como CLIs finos
+ 
+# --- Testes -------------------------------------------------------------
+pytest>=8.3
+pytest-cov>=5.0
+ 
+# --- Notebooks de exploração ---------------------------------------------
+jupyter>=1.1
+ipykernel>=6.29
