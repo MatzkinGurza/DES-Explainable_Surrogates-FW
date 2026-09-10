@@ -1,24 +1,29 @@
 # DES-Explainable_Surrogates-FW
-Repositório dedicado ao TCC do curso de Engenharia Mecatrônica e Departamento de Engenharia Mecatrônica e Sistemas Mecânicos (PMR) de Mateus Matzkin Gurza e Vinicius Barile
-
 
 # Framework de Metamodelagem Explicável para Análise Paramétrica de Sistemas de Eventos Discretos
-TCC — Escola Politécnica da Universidade de São Paulo (POLI-USP) 
 
+TCC — Escola Politécnica da Universidade de São Paulo (POLI-USP)
+Departamento de Engenharia Mecatrônica e de Sistemas Mecânicos (PMR)
+Mateus Matzkin Gurza · Vinicius Barile Lora Franco
 
+---
 
 ## 📋 Sumário
 
 - [Sobre o Projeto](#sobre-o-projeto)
 - [Motivação](#motivação)
 - [Objetivos](#objetivos)
+- [Estado atual da implementação](#estado-atual-da-implementação)
 - [Arquitetura do Framework](#arquitetura-do-framework)
+- [Interface com o ProModel — o cockpit Excel](#interface-com-o-promodel--o-cockpit-excel)
+- [Decisões de projeto registradas](#decisões-de-projeto-registradas)
 - [Estrutura do Repositório](#estrutura-do-repositório)
 - [Tecnologias e Dependências](#tecnologias-e-dependências)
 - [Instalação e Configuração](#instalação-e-configuração)
 - [Como Usar](#como-usar)
 - [Módulos](#módulos)
 - [Métricas de Validação](#métricas-de-validação)
+- [Testes](#testes)
 - [Cronograma](#cronograma)
 - [Autores](#autores)
 - [Orientador](#orientador)
@@ -37,7 +42,7 @@ Para mitigar esses desafios, este projeto propõe um **framework modular em Pyth
 
 O framework busca **facilitar a tomada de decisões de forma mais rápida e informada** do que se fossem baseadas na simulação exaustiva.
 
-**Palavras-chave:** Simulação de Eventos Discretos · SED · Metamodelagem · Surrogate Models · Explicabilidade · XAI · ProModel · Projeto de Experimentos · DoE · SHAP · Random Forest · ANN
+**Palavras-chave:** Simulação de Eventos Discretos · SED · Metamodelagem · Surrogate Models · Explicabilidade · XAI · ProModel · Projeto de Experimentos · DoE · SHAP · Random Forest · Processos Gaussianos
 
 ---
 
@@ -58,8 +63,8 @@ A literatura demonstra que a sinergia entre Metamodelagem e XAI é tecnicamente 
 ### Produtos Esperados
 
 1. **Pipeline Python** completo, documentado e reutilizável para: geração de dados via DoE no ProModel → treinamento e seleção de metamodelos → aplicação da camada de explicabilidade.
-2. **Comparação sistemática** de arquiteturas de metamodelagem (Random Forest, ANN e outros) em termos de acurácia, generalização, tempo de treinamento, latência de inferência e custo computacional.
-3. **Conjunto de métricas de fidelidade** que quantificam o grau de aderência do metamodelo ao simulador de referência.
+2. **Comparação sistemática** de arquiteturas de metamodelagem (baseline, árvores, Processos Gaussianos, redes neurais) em termos de acurácia, generalização, tempo de treinamento, latência de inferência e custo computacional.
+3. **Conjunto de métricas de fidelidade** que quantificam o grau de aderência do metamodelo ao simulador de referência — incluindo a comparação contra o **teto de ruído** do próprio simulador.
 4. **Relatórios de explicabilidade** que correlacionam as importâncias de variáveis extraídas via XAI com a teoria de modelos analíticos de sistemas produtivos e logísticos.
 5. **Framework aplicado** em pelo menos dois sistemas: modelos sintéticos de referência e um caso industrial real (dados anonimizados).
 
@@ -67,48 +72,138 @@ A literatura demonstra que a sinergia entre Metamodelagem e XAI é tecnicamente 
 
 | # | Critério | Métrica |
 |---|----------|---------|
-| 1 | Taxa de acerto das variáveis de saída | R², RMSE, MAE |
+| 1 | Taxa de acerto das variáveis de saída | R², RMSE, MAE — sempre lidos contra o teto de ruído |
 | 2 | Taxa de acerto da configuração ótima | Identificação da melhor configuração paramétrica |
 | 3 | Tempo de inferência | Razão entre tempo do metamodelo e tempo do simulador |
 | 4 | Testes de explicabilidade | Confirmação do efeito de cada variável via replicação no ProModel |
 
 ---
 
+## Estado atual da implementação
+
+O framework segue o fluxo metodológico da monografia, dividido em fases. O que já existe em código:
+
+| Fase | Pacote | Estado | Conteúdo |
+|------|--------|--------|----------|
+| 1 — DoE | `doe/parameter_space.py` | ✅ Implementado | Espaço de parâmetros misto e geração de design one-shot (LHS/Monte Carlo/Sobol) |
+| 1 — Replicações | `doe/replication.py` | ✅ Implementado | Política fixa de replicação, plano de execução, agregação e **teto de ruído** |
+| 2 — Simulador | `sim_interface/excel_bridge.py` | ✅ Implementado | Cockpit `.xlsx` de ida e volta com o ProModel, com esquema de tipos e status por execução |
+| 2→3 — Ponte | `preprocessing/pipeline.py` | ✅ Implementado | Split / fit / transform de X e y com separação estrita entre transformação determinística e aprendida |
+| 3 — Metamodelos | `metamodels/` | ✅ Implementado | Quatro famílias: `baseline`, `tree_family`, `gp_family`, `neural_family` |
+| 4 — Avaliação | `evaluation/` | 🚧 Esqueleto | Métricas de erro, validação cruzada, leitura contra o teto de ruído |
+| 5 — XAI | `xai/` | 🚧 Esqueleto | SHAP, PDP/ICE, índices de Sobol, incerteza via conformal prediction |
+| 6 — Validação analítica | `theoretical/` | 📝 Previsto | Confronto das importâncias XAI com modelos analíticos |
+| — Orquestração | `cycle/` | 🚧 Esqueleto | Controlador dos Fluxos 1/2/3 |
+| — Rastreabilidade | `logging_/` | 🚧 Esqueleto | Logging estruturado e tracking de execuções (structlog/MLflow) |
+
+Ainda **não** existem: `main.py`/CLIs em `scripts/`, notebooks e os YAMLs de cenário preenchidos (os quatro arquivos em `configs/` estão com o esqueleto de campos, aguardando os parâmetros dos modelos ProModel).
+
+---
+
 ## Arquitetura do Framework
 
-O framework integra duas frentes complementares em uma cadeia de processamento modular:
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                             FRAMEWORK PIPELINE                               │
+│                                                                              │
+│  Fase 1                     Fase 2                    Fase 3                 │
+│  ┌────────────────┐   plano  ┌──────────────────┐  raw  ┌─────────────────┐  │
+│  │ parameter_space│ ───────► │  cockpit .xlsx   │ ────► │ preprocessing   │  │
+│  │ + replication  │  N x R   │  <->  ProModel   │       │  X / y          │  │
+│  └────────────────┘  linhas  └──────────────────┘       └────────┬────────┘  │
+│         ▲                                                        │           │
+│   ParameterSpec                                                  ▼           │
+│   (configs/*.yaml)                                      ┌─────────────────┐  │
+│                                                         │  metamodels     │  │
+│                          teto de ruído  ─────────────►  │  4 famílias     │  │
+│                          (compute_noise_ceiling)        └────────┬────────┘  │
+│                                                                  │           │
+│                             Fase 4                               ▼           │
+│                          ┌─────────────────┐          ┌─────────────────┐    │
+│                          │  evaluation     │ ───────► │   xai (Fase 5)  │    │
+│                          │  R², RMSE, CV   │          │  SHAP/PDP/ICE   │    │
+│                          └─────────────────┘          └─────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+O caminho completo dos dados, função por função:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        FRAMEWORK PIPELINE                           │
-│                                                                     │
-│  ┌──────────┐   Samples X   ┌────────────┐   Target Y    ┌────────┐ │
-│  │   DoE    │ ────────────► │  ProModel  │ ────────────► │  ML    │ │
-│  │ Amostrag.│               │ Simulador  │               │ Train  │ │
-│  └──────────┘               └────────────┘               └────┬───┘ │
-│       ▲                                                       │     │
-│  Parâm.                                                       ▼     │
-│  Config.                                                 ┌────────┐ │
-│                                                          │  XAI   │ │
-│                                                          │  Layer │ │
-│                                                          └────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+parameter_space.generate_design()      -> N pontos do DoE
+replication.build_execution_plan()     -> N x R linhas (uma por execução)
+excel_bridge.build_cockpit_table()     -> + colunas de KPI vazias
+excel_bridge.write_cockpit_excel()     -> .xlsx entregue ao ProModel
+........... ProModel roda e preenche a planilha ...........
+excel_bridge.read_cockpit_excel()      -> .xlsx de volta em DataFrame
+excel_bridge.extract_results()         -> TODAS as linhas + status_execucao
+excel_bridge.select_complete_runs()    -> recorte explícito das completas
+replication.aggregate_replications()   -> dataset agregado (1 linha/ponto)
+replication.compute_noise_ceiling()    -> teto de R² por KPI
+PreprocessingPipeline.split/fit/...    -> X_train/X_test, y_train/y_test
+metamodels.build_*()                   -> estimador treinado
 ```
 
-**Módulo 1 — DoE (Design of Experiments):**  
-Geração de planos amostrais parametrizados (LHS, Sobol, Full Factorial) para cobertura representativa do espaço paramétrico.
+---
 
-**Módulo 2 — Simulador (ProModel):**  
-Execução das simulações nos pontos amostrados. Coleta estruturada dos dados de entrada-saída.
+## Interface com o ProModel — o cockpit Excel
 
-**Módulo 3 — Pré-processamento:**  
-Limpeza, normalização e divisão dos dados em conjuntos de treino/validação/teste.
+Esta é a diferença arquitetural mais importante em relação ao esboço inicial do projeto: **o Python não automatiza o ProModel**. A troca é feita por uma planilha `.xlsx` ("cockpit") no formato
 
-**Módulo 4 — Metamodelagem:**  
-Treinamento e comparação de arquiteturas (Random Forest, ANN, Gradient Boosting, Kriging/GP). Seleção via métricas de fidelidade.
+```
+uma linha = uma execução completa (um ponto do DoE x uma replicação)
 
-**Módulo 5 — Explicabilidade (XAI):**  
-Aplicação de SHAP *(Shapley Additive Explanations)*, PDP *(Partial Dependence Plots)* e ICE *(Individual Conditional Expectations)* sobre o metamodelo selecionado.
+[ ------------- ENTRADA -------------- ] [ ---- SAÍDA ---- ]
+point_id | replication_id | seed | <params...> | <KPIs...>
+                                                  (vazios)
+```
+
+O ProModel é configurado **por fora** deste código para varrer a planilha sequencialmente: pega a próxima linha ainda não executada, lê os parâmetros daquela linha, roda a simulação e escreve os KPIs na **mesma linha** antes de avançar. Célula em branco é o marcador de "ainda não executado".
+
+Dois detalhes de formato que valem registro:
+
+1. **Um único cabeçalho** (linha 1), sem faixa mesclada "Entrada"/"Saída" acima — uma segunda linha de cabeçalho deslocaria os dados e tornaria a leitura pelo ProModel ambígua. A distinção visual é feita apenas por cor de preenchimento e negrito nas células do cabeçalho.
+2. **Aba oculta de esquema** (`_sed_meta_schema`) com o dtype original de cada coluna. Sem ela o round-trip pelo Excel perde tipo: `int64` volta como `float64`, `category` volta como texto solto e a ordem de uma categórica ordenada (ex.: prioridade `baixa < media < alta`) desaparece. Se a aba não existir, a leitura cai num modo *best-effort* documentado.
+
+---
+
+## Decisões de projeto registradas
+
+Quatro decisões estruturam o código e explicam por que ele é do jeito que é.
+
+### 1. Nada é deletado silenciosamente
+
+Nenhuma linha desaparece em nenhum ponto do pipeline. `extract_results()` devolve **todas** as execuções do cockpit e marca cada uma na coluna `status_execucao`:
+
+| Status | Significado |
+|--------|-------------|
+| `completa` | todos os KPIs preenchidos e numéricos |
+| `parcial` | alguns KPIs preenchidos, outros em branco |
+| `pendente` | nenhum KPI preenchido (ainda não rodou) |
+| `invalida` | KPI preenchido com algo que não é número |
+
+A seleção das completas é um passo **explícito e separado** (`select_complete_runs()`), que loga o que está deixando de fora.
+
+### 2. Entradas determinísticas, saídas aprendidas
+
+A regra que organiza o `preprocessing` inteiro, e o erro que ele existe para tornar impossível:
+
+- **X (entradas)** — os limites de um parâmetro são conhecidos *antes* de qualquer simulação rodar: vêm do `ParameterSpec` (o YAML do cenário), não dos dados coletados. Por isso **não** se usa `MinMaxScaler().fit(X_train)`, e sim os limites *declarados*; idem para categóricas, com `OneHotEncoder(categories=[spec.levels])` explícito. Propriedade garantida e testada: ajustar o transformador de X em **qualquer** subconjunto das linhas — inclusive uma única — produz exatamente a mesma transformação.
+- **y (saídas)** — o range de um KPI só existe depois de rodar simulação. Aqui a transformação é ajustada aos dados, e a ordem é crítica: `split()` nos dados brutos → `fit()` **só** no treino → `transform_y()` (nunca `fit_transform`) nos dois lados.
+
+### 3. O teto de ruído é o denominador de tudo
+
+`compute_noise_ceiling()` decompõe a variância observada em variância *entre* pontos (sinal) e *intra* ponto (ruído do simulador):
+
+```
+noise_ceiling = variância_entre_pontos / variância_total
+```
+
+Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver, é overfitting ao ruído. Um R² de 0,72 num KPI cujo teto é 0,75 é um resultado **excelente**; o mesmo 0,72 num KPI de teto 0,98 é um metamodelo ruim. É por isso que as métricas da Fase 4 nunca são lidas em absoluto.
+
+### 4. Escopo fechado em duas frentes
+
+- **Sem PyTorch.** A família neural é `MLPRegressor` e só. Redes neurais rendem com muitos dados, e o regime aqui é de poucas centenas de pontos de DoE, cada um custando uma rodada de ProModel com replicações. O gatilho para reconsiderar é único e ainda não observado: o MLP do sklearn se mostrar competitivo *e* limitado pela própria implementação.
+- **Nenhum algoritmo é implementado do zero.** Todas as famílias já existem em bibliotecas maduras; o trabalho do pacote `metamodels` é agrupá-las por família e padronizar o mínimo — `build_<variante>()` + `GRID_<VARIANTE>` — para que treinar e tunar cada variante não exija lembrar de uma assinatura diferente.
 
 ---
 
@@ -117,93 +212,87 @@ Aplicação de SHAP *(Shapley Additive Explanations)*, PDP *(Partial Dependence 
 ```
 📦 DES-Explainable_Surrogates-FW/
 │
-├── 📂 data/                        # Dados gerados e utilizados
-│   ├── raw/                        # Saídas brutas do ProModel
-│   ├── processed/                  # Dados pré-processados
-│   └── synthetic/                  # Casos sintéticos de referência
+├── 📂 Código/
+│   ├── 📂 configs/                      # Cenários (validados via pydantic)
+│   │   ├── scenario_01_serial.yaml      #   linha serial (baseline)
+│   │   ├── scenario_02_routing.yaml     #   roteamento
+│   │   ├── scenario_03_multiproduto.yaml
+│   │   └── scenario_real.yaml           #   estudo de caso real
+│   │
+│   ├── 📂 src/sed_meta/                 # Pacote principal (layout src/)
+│   │   ├── doe/                         # FASE 1
+│   │   │   ├── parameter_space.py       #   ParameterSpec, generate_design
+│   │   │   └── replication.py           #   ReplicationPolicy, agregação, teto de ruído
+│   │   ├── sim_interface/               # FASE 2
+│   │   │   └── excel_bridge.py          #   cockpit .xlsx <-> ProModel
+│   │   ├── preprocessing/               # PONTE FASE 2 -> 3
+│   │   │   └── pipeline.py              #   PreprocessingPipeline, TargetTransformSpec
+│   │   ├── metamodels/                  # FASE 3 — quatro famílias independentes
+│   │   │   ├── baseline.py              #   Dummy, Linear, polinomial, Ridge
+│   │   │   ├── tree_family.py           #   RF, ExtraTrees, GradientBoosting, XGBoost
+│   │   │   ├── gp_family.py             #   sklearn GP, smt.KRG, hetGPy
+│   │   │   └── neural_family.py         #   MLPRegressor
+│   │   ├── evaluation/                  # FASE 4 (esqueleto)
+│   │   ├── xai/                         # FASE 5 (esqueleto)
+│   │   ├── cycle/                       # Controlador dos Fluxos 1/2/3 (esqueleto)
+│   │   └── logging_/                    # RNF de rastreabilidade (esqueleto)
+│   │
+│   ├── 📂 tests/
+│   │   ├── metamodels/                  # conftest, helpers, baseline, tree_family
+│   │   ├── preprocessing/               # invariância do transformador de X, vazamento em y
+│   │   └── test_excel_bridge_e2e.py     # round-trip completo do cockpit
+│   │
+│   ├── 📂 notebooks/                    # exploração (vazio por ora)
+│   ├── 📂 scripts/                      # CLIs finos com click (vazio por ora)
+│   ├── 📂 runs/                         # saída por execução — NÃO versionado
+│   ├── pytest.ini
+│   └── requirements.txt
 │
-├── 📂 doe/                         # Módulo de Projeto de Experimentos
-│   ├── sampling.py                 # LHS, Sobol, Full Factorial
-│   ├── space_definition.py         # Definição do espaço paramétrico
-│   └── README.md
+├── 📂 Monografia/                       # LaTeX — só o PDF é versionado
+│   └── main.pdf
 │
-├── 📂 simulation/                  # Interface com o ProModel
-│   ├── promodel_interface.py       # Automação de execução
-│   ├── data_collector.py           # Coleta e parsing de resultados
-│   └── README.md
-│
-├── 📂 preprocessing/               # Pré-processamento dos dados
-│   ├── cleaner.py
-│   ├── normalizer.py
-│   └── splitter.py
-│
-├── 📂 metamodeling/                # Módulo de Metamodelagem
-│   ├── models/
-│   │   ├── random_forest.py
-│   │   ├── neural_network.py
-│   │   ├── gradient_boosting.py
-│   │   └── kriging.py
-│   ├── trainer.py                  # Pipeline de treinamento
-│   ├── validator.py                # Métricas de fidelidade
-│   └── README.md
-│
-├── 📂 xai/                         # Camada de Explicabilidade
-│   ├── shap_analysis.py            # SHAP global e local
-│   ├── pdp_analysis.py             # Partial Dependence Plots
-│   ├── ice_analysis.py             # Individual Conditional Expectations
-│   └── README.md
-│
-├── 📂 experiments/                 # Experimentos executados
-│   ├── synthetic_case_1/
-│   ├── synthetic_case_2/
-│   └── industrial_case/            # Dados anonimizados
-│
-├── 📂 results/                     # Resultados, métricas e visualizações
-│   ├── metrics/
-│   ├── plots/
-│   └── logs/                       # Logs de rastreabilidade por execução
-│
-├── 📂 monografia/                  # Documentação acadêmica (LaTeX)
-│   ├── TCC_Document.tex
-│   └── refs.bib
-│
-├── 📂 notebooks/                   # Jupyter Notebooks exploratórios
-│   ├── 01_doe_exploration.ipynb
-│   ├── 02_metamodel_benchmark.ipynb
-│   └── 03_xai_analysis.ipynb
-│
-├── 📂 tests/                       # Testes unitários e de integração
-│
-├── config.yaml                     # Configuração central do framework
-├── main.py                         # Ponto de entrada principal
-├── requirements.txt
+├── .gitignore
 └── README.md
 ```
+
+> **Sobre o versionamento:** o `.gitignore` fica na raiz e cobre `venv/`, `runs/`, `mlruns/` e os caches (`__pycache__`, `.pytest_cache`, `.ipynb_checkpoints`). De `Monografia/` **apenas `main.pdf`** é versionado — as fontes `.tex`, o `refs.bib`, `images/` e todos os artefatos de compilação do LaTeX ficam de fora.
 
 ---
 
 ## Tecnologias e Dependências
 
 ### Linguagem Principal
-- **Python 3.10+**
+
+- **Python 3.12** (testado nessa versão; requer 3.10+ pela sintaxe `X | None`)
 
 ### Bibliotecas Principais
 
 | Categoria | Biblioteca | Uso |
 |-----------|-----------|-----|
-| DoE / Amostragem | `pyDOE2`, `SALib` | LHS, Sobol, planejamento fatorial |
-| Machine Learning | `scikit-learn` | Random Forest, validação, métricas |
-| Deep Learning | `PyTorch` / `TensorFlow` | Redes Neurais Artificiais (ANN) |
-| Metamodelagem | `SMT` (Surrogate Modeling Toolbox) | Kriging, RBF, comparação de surrogate models |
-| XAI — SHAP | `shap` | Shapley Additive Explanations |
-| XAI — PDP/ICE | `scikit-learn` | Partial Dependence Plots, ICE |
-| Dados | `pandas`, `numpy` | Manipulação e processamento |
-| Visualização | `matplotlib`, `seaborn`, `plotly` | Gráficos e dashboards |
-| Experimentos | `mlflow` | Rastreabilidade e versionamento de artefatos |
-| Testes | `pytest` | Testes unitários e de integração |
+| DoE / Amostragem | `smt>=2.14` | `DesignSpace` misto + `LHS(criterion="ese")`, `MixedIntegerSamplingMethod` |
+| DoE / Amostragem | `scipy>=1.13` | `scipy.stats.qmc`: LatinHypercube, Sobol |
+| DoE / Sensibilidade | `SALib>=1.5` | Índices de Sobol (triangulação independente do SMT-EX) |
+| DoE / Screening | `pyDOE3>=1.6` | Fatorial fracionado, Plackett-Burman |
+| Interface simulador | `openpyxl>=3.1` | Leitura/escrita do cockpit `.xlsx` |
+| Pré-processamento | `scikit-learn>=1.5` | `ColumnTransformer`, `OneHotEncoder` + metamodelos e CV |
+| Pré-processamento | `joblib>=1.4` | Persistência do pipeline ajustado em `runs/<run_id>/` |
+| Metamodelagem — árvores | `xgboost>=3.4` | GBT |
+| Metamodelagem — GP | `hetgpy>=1.0` | Processo Gaussiano **heterocedástico** |
+| XAI | `smt-explainability>=0.3` | SHAP/PDP/ICE/Sobol integrados ao SMT |
+| XAI | `shap>=0.52` | TreeExplainer / KernelExplainer (fonte independente) |
+| XAI — incerteza | `mapie>=1.5` | Conformal prediction, para modelos sem UQ nativa |
+| Configuração | `pydantic>=2.13`, `PyYAML>=6.0` | Validação de schema dos YAMLs de cenário |
+| Rastreabilidade | `mlflow>=3.16`, `structlog>=25.1` | Tracking por execução, logging estruturado |
+| Visualização | `matplotlib>=3.9`, `seaborn>=0.13` | Relatórios, PDP/ICE, figuras da monografia |
+| CLI | `click>=8.1` | `scripts/run_*.py` como CLIs finos |
+| Testes | `pytest>=8.3`, `pytest-cov>=5.0` | Testes unitários e de integração |
+| Notebooks | `jupyter>=1.1`, `ipykernel>=6.29` | Exploração |
+
+> Decisões de dependência que mudaram em relação ao esboço inicial: `pyDOE3` no lugar de `pyDOE2`; **sem PyTorch/TensorFlow** (ver [Decisões de projeto](#4-escopo-fechado-em-duas-frentes)); `hetgpy` acrescentado por ser o GP tecnicamente adequado a SED estocástico; `mapie` acrescentado para dar incerteza às famílias que não têm UQ nativa.
 
 ### Software Externo
-- **ProModel** — Simulador de Eventos Discretos (licença necessária)
+
+- **ProModel** — Simulador de Eventos Discretos (licença necessária). Configurado manualmente para consumir o cockpit `.xlsx`; a configuração do ProModel está fora do escopo do código Python.
 
 ---
 
@@ -212,122 +301,188 @@ Aplicação de SHAP *(Shapley Additive Explanations)*, PDP *(Partial Dependence 
 ### 1. Clone o repositório
 
 ```bash
-git clone https://github.com/<usuario>/tcc-xai-metamodeling.git
-cd tcc-xai-metamodeling
+git clone https://github.com/MatzkinGurza/DES-Explainable_Surrogates-FW.git
+cd DES-Explainable_Surrogates-FW
 ```
 
 ### 2. Crie e ative um ambiente virtual
 
+O `venv/` vive na **raiz** do repositório (um nível acima de `Código/`) e não é versionado.
+
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
+python -m venv venv
+# Windows (PowerShell)
+venv\Scripts\Activate.ps1
 # Linux / macOS
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
 ### 3. Instale as dependências
 
 ```bash
-pip install -r requirements.txt
+pip install -r Código/requirements.txt
 ```
 
-### 4. Configure os parâmetros do experimento
+### 4. Configure o cenário
 
-Edite o arquivo `config.yaml` com os parâmetros do seu modelo SED:
+Edite o YAML do cenário desejado em `Código/configs/`. O esqueleto de campos é:
 
 ```yaml
-doe:
-  method: lhs          # lhs | sobol | full_factorial
-  n_samples: 200
-  random_seed: 42
+scenario:
+  name: scenario_01_serial
+  description: "Linha de produção serial (baseline)"
 
-simulation:
-  promodel_path: "C:/ProModel/..."
-  model_file: "path/to/model.mod"
-
-metamodeling:
-  algorithms: [random_forest, ann, gradient_boosting]
-  test_size: 0.2
-  cv_folds: 5
-
-xai:
-  methods: [shap, pdp, ice]
-  shap_n_samples: 100
+factors: []        # fatores de entrada e seus intervalos (viram ParameterSpec)
+responses: []      # KPIs de interesse (viram as colunas de saída do cockpit)
+replications: 1    # replicações por ponto de projeto
 ```
 
 ---
 
 ## Como Usar
 
-### Execução completa do pipeline
+Ainda não existem os CLIs em `scripts/` — o uso atual é via API do pacote. O layout `src/` está resolvido pelo `pytest.ini` (`pythonpath = src`) para os testes; para uso interativo, rode a partir de `Código/` com `PYTHONPATH=src`.
 
-```bash
-python main.py --config config.yaml
+### Fase 1 → 2: gerar o design e emitir o cockpit
+
+```python
+from sed_meta.doe.parameter_space import ParameterSpec, generate_design
+from sed_meta.doe.replication import ReplicationPolicy, build_execution_plan
+from sed_meta.sim_interface.excel_bridge import build_cockpit_table, write_cockpit_excel
+
+specs = [
+    ParameterSpec("n_operadores",  "integer",     low=2, high=10),
+    ParameterSpec("taxa_chegada",  "float",       low=0.5, high=4.0),
+    ParameterSpec("regra_fila",    "categorical", levels=["FIFO", "SPT", "EDD"]),
+    ParameterSpec("prioridade",    "ordinal",     levels=["baixa", "media", "alta"]),
+]
+
+design = generate_design(specs, n_points=120, seed=42, method="lhs", criterion="ese")
+plan   = build_execution_plan(design, ReplicationPolicy(n_replications=5, seed_base=0))
+
+cockpit = build_cockpit_table(plan, kpi_names=["lead_time", "wip", "utilizacao"])
+write_cockpit_excel(cockpit, "runs/exp001/cockpit.xlsx")
 ```
 
-### Execução modular (por etapa)
+Entregue o `.xlsx` ao ProModel. Ele preenche as colunas de KPI linha a linha.
 
-```bash
-# 1. Gerar plano amostral
-python doe/sampling.py --config config.yaml
+### Fase 2 → 3: ler de volta, agregar e treinar
 
-# 2. Executar simulações no ProModel (requer ProModel instalado)
-python simulation/promodel_interface.py --config config.yaml
+```python
+from sed_meta.sim_interface.excel_bridge import (
+    read_cockpit_excel, extract_results, select_complete_runs,
+)
+from sed_meta.doe.replication import aggregate_replications, compute_noise_ceiling
+from sed_meta.preprocessing import PreprocessingPipeline, TargetTransformSpec
+from sed_meta.metamodels.tree_family import build_random_forest, fit_with_sample_weight
 
-# 3. Treinar e validar metamodelos
-python metamodeling/trainer.py --data data/processed/dataset.csv
+kpis = ["lead_time", "wip", "utilizacao"]
 
-# 4. Aplicar camada XAI sobre o melhor metamodelo
-python xai/shap_analysis.py --model results/best_model.pkl
+df   = read_cockpit_excel("runs/exp001/cockpit.xlsx")
+raw  = extract_results(df, kpi_names=kpis)      # TODAS as linhas + status_execucao
+done = select_complete_runs(raw)                # recorte explícito, com log
+
+param_cols = [s.name for s in specs]
+dataset = aggregate_replications(done, param_cols=param_cols, kpi_cols=kpis)
+teto    = compute_noise_ceiling(done, kpi_cols=kpis)   # R² máximo legítimo por KPI
+
+pipe = PreprocessingPipeline(
+    param_specs=specs,
+    target_specs=[TargetTransformSpec(name=k, method="standard") for k in kpis],
+)
+train_df, test_df = pipe.split(dataset, test_size=0.2, seed=42)
+pipe.fit(train_df)                              # SÓ o treino
+
+X_train, X_test = pipe.transform_X(train_df), pipe.transform_X(test_df)
+y_train = pipe.transform_y(train_df, "lead_time")
+
+model = build_random_forest()
+fit_with_sample_weight(model, X_train, y_train,
+                       sample_weight=train_df["lead_time_sample_weight"])
+
+# para reportar em minutos/peças:
+y_pred = pipe.inverse_transform_y(model.predict(X_test), "lead_time")
 ```
 
-### Notebooks interativos
-
-Para exploração e análise visual, utilize os notebooks em `notebooks/`.
+**Um modelo por KPI:** `X` é compartilhado entre todos os KPIs, `y` não — por isso `transform_y`/`inverse_transform_y` recebem o nome do KPI, e o laço por KPI é de quem chama.
 
 ---
 
 ## Módulos
 
-### `doe/` — Design of Experiments
+### `doe/` — Fase 1: Projeto de Experimentos
 
-Responsável pela geração de planos amostrais que cobrem o espaço paramétrico de forma estatisticamente representativa.
+**`parameter_space.py`** — dado um espaço de parâmetros e um número de pontos, gera um `DataFrame` cobrindo o espaço, de forma **one-shot** (uma chamada, sem realimentação). Não sabe nada sobre replicações, warm-up ou o simulador.
 
-- **Métodos suportados:** Latin Hypercube Sampling (LHS), Sobol Sequence, Full Factorial
-- **Entrada:** definição das variáveis de entrada e seus intervalos
-- **Saída:** matriz de pontos amostrais `X` para execução no ProModel
+- Tipos de parâmetro: `float`, `integer`, `categorical` (nominal), `ordinal` (ordem importa, espaçamento não uniforme) e `binary`. A distinção `ordinal` × `categorical` × `integer` é explícita e afeta tanto a amostragem quanto o encoding no `preprocessing`.
+- Métodos: `lhs` (padrão, com critério `ese` — o mesmo de Saves et al. 2025), `monte_carlo`, `sobol`. Sobol é rejeitado com erro claro quando há categóricas nominais, por não ter definição nativa para elas.
+- Saída já no dtype correto (`int64`/`float64`/`category`), com a ordem preservada nas ordinais.
 
-### `metamodeling/` — Metamodelagem
+**`replication.py`** — política **fixa** de replicação (todo ponto roda o mesmo número de réplicas, sem lógica adaptativa por variância). É puro e sem I/O: não roda simulação nenhuma, o que permite testar a agregação com `DataFrame` sintético.
 
-Treina e compara arquiteturas de surrogate models sobre os dados coletados.
+- `build_execution_plan()` expande N pontos em N × R linhas, uma por execução, com `seed` por réplica.
+- `aggregate_replications()` consolida em uma linha por ponto, com média, desvio, SEM e `sample_weight` (inverso da variância) por KPI — o gancho para metamodelos ponderados.
+- `compute_noise_ceiling()` devolve o R² máximo legítimo por KPI.
 
-- **Modelos suportados:** Random Forest, ANN, Gradient Boosting, Kriging/GP
-- **Entrada:** dataset `(X, y)` de entrada-saída do simulador
-- **Saída:** modelos treinados, métricas de fidelidade, log de execução
+### `sim_interface/` — Fase 2: interface com o ProModel
 
-### `xai/` — Camada de Explicabilidade
+Ver [Interface com o ProModel](#interface-com-o-promodel--o-cockpit-excel). API: `build_cockpit_table`, `write_cockpit_excel`, `read_cockpit_excel`, `extract_results`, `select_complete_runs`.
 
-Aplica técnicas de XAI *post-hoc* sobre o metamodelo selecionado.
+### `preprocessing/` — ponte Fase 2 → 3
 
-- **SHAP:** importâncias globais e explicações locais por instância
-- **PDP:** efeito marginal médio de cada variável na saída
-- **ICE:** curvas individuais de dependência condicional
-- **Saída:** visualizações exportadas em `results/plots/` + relatório de sensibilidade
+`PreprocessingPipeline` (split → fit → transform), `TargetTransformSpec` (métodos `standard`, `log_standard`, `none`) e `build_input_transformer`. Ver [Decisão 2](#2-entradas-determinísticas-saídas-aprendidas). O `split()` devolve `DataFrame`s **completos** — as colunas `{kpi}_std`, `{kpi}_n`, `{kpi}_sem` e `{kpi}_sample_weight` seguem disponíveis para a Fase 3.
+
+### `metamodels/` — Fase 3: quatro famílias
+
+Um arquivo por família, **independentes entre si** (nenhum importa o outro). Contrato uniforme: `build_<variante>()` devolve um estimador com defaults sensatos para o nosso regime (poucas centenas de pontos, ruído alto), e `GRID_<VARIANTE>` traz o grid de hiperparâmetros sugerido. Todos seguem a API do scikit-learn, então `GridSearchCV` e `cross_val_score` funcionam sem adaptação.
+
+| Arquivo | Variantes | Por que a família é coesa |
+|---------|-----------|---------------------------|
+| `baseline.py` | `dummy_mean`, `linear`, `polynomial`, `ridge`, `polynomial_ridge` | O piso de comparação — nunca deve ser pulado |
+| `tree_family.py` | `random_forest`, `extra_trees`, `gradient_boosting`, `xgboost` | Aceitam `sample_weight` com a mesma semântica e são compatíveis com **TreeSHAP** (exato, polinomial) |
+| `gp_family.py` | `sklearn_gp`, `smt_kriging`, `hetgp` | **Variância preditiva nativa** — as outras famílias precisam de conformal prediction para dizer o mesmo |
+| `neural_family.py` | `mlp` | `MLPRegressor` e só ([decisão registrada](#4-escopo-fechado-em-duas-frentes)) |
+
+Dois pontos que valem destaque:
+
+- **O baseline é resultado, não fracasso.** Se uma regressão polinomial de 2ª ordem já resolve, isso significa que a superfície de resposta do sistema simulado é suave e de baixa ordem — uma conclusão publicável sobre o **sistema**, mais informativa que um Random Forest opaco com o mesmo R².
+- **A família GP é uma escada deliberada sobre o ruído:** `GaussianProcessRegressor` (homocedástico, via `WhiteKernel`) → `smt.KRG` (homocedástico, via `eval_noise`) → `hetGPy.hetGP` (**heterocedástico**, ruído modelado como processo). A última é a tecnicamente adequada para SED — a variância de um KPI de fila explode perto da saturação —, e as três estão presentes para que a monografia possa **medir** essa diferença em vez de afirmá-la. `hetGPy` e `smt.KRG` não seguem a API do sklearn nativamente e por isso têm wrappers finos (`HetGPRegressor`, `SMTKrigingRegressor`) — compatibilidade apenas, sem lógica de modelo.
+
+**Espaço transformado:** os estimadores treinam e preveem no espaço já transformado pelo `preprocessing` (X escalado para [0,1] pelos limites do `ParameterSpec`, y padronizado e possivelmente em `log1p`). Devolver previsão em minutos/peças é responsabilidade da Fase 4, que tem o objeto de preprocessing em mãos.
+
+### `evaluation/`, `xai/`, `cycle/`, `logging_/`
+
+Esqueletos com o escopo já delimitado nas docstrings. `cycle/` é onde mora a sequência completa dos Fluxos 1/2/3 — vale notar que **não existe execução em lote do lado do Python**: quem percorre as linhas rodando a simulação é o ProModel, a partir do cockpit.
 
 ---
 
 ## Métricas de Validação
 
-O framework reporta automaticamente as seguintes métricas para cada metamodelo treinado:
-
 | Métrica | Descrição |
 |---------|-----------|
-| **R²** | Coeficiente de determinação — aderência geral ao simulador |
+| **R²** | Coeficiente de determinação — **sempre lido contra o teto de ruído do KPI** |
+| **Teto de ruído** | `var_entre_pontos / var_total` — o R² máximo legítimo, por KPI |
 | **RMSE** | Raiz do erro quadrático médio |
 | **MAE** | Erro absoluto médio |
 | **Speedup** | Razão entre tempo de inferência do metamodelo e tempo de simulação equivalente |
 | **Config. Accuracy** | Capacidade de identificar a configuração ótima dentre os cenários avaliados |
+| **Cobertura do intervalo** | Calibração da incerteza (nativa nos GPs, conformal via `mapie` nas outras famílias) |
+
+---
+
+## Testes
+
+```bash
+cd Código
+pytest                     # pythonpath=src e testpaths=tests já vêm do pytest.ini
+pytest --cov=src/sed_meta  # com cobertura
+```
+
+O que os testes cobrem hoje:
+
+- **`tests/preprocessing/test_pipeline.py`** — a propriedade central do módulo: ajustar o transformador de X em qualquer subconjunto de linhas (inclusive uma só) produz a mesma transformação; e a ausência de vazamento na transformação de y.
+- **`tests/metamodels/`** — contrato `build_*`/`GRID_*` e propagação de `sample_weight` nas famílias `baseline` e `tree_family`.
+- **`tests/test_excel_bridge_e2e.py`** — round-trip completo do cockpit, incluindo preservação de dtypes pela aba de esquema e a marcação de status por execução.
 
 ---
 
@@ -353,24 +508,24 @@ O framework reporta automaticamente as seguintes métricas para cada metamodelo 
 
 ## Autores
 
-| Nome | GitHub | Contato |
-|------|--------|---------|
-| **Mateus Matzkin Gurza** | [@...](https://github.com) | — |
-| **Vinicius Barile Lora Franco** | [@...](https://github.com) | — |
+| Nome | GitHub |
+|------|--------|
+| **Mateus Matzkin Gurza** | [@MatzkinGurza](https://github.com/MatzkinGurza) |
+| **Vinicius Barile Lora Franco** | — |
 
 ---
 
 ## Orientador
 
-**Prof. Fabrício Junqueira**  
-Escola Politécnica da Universidade de São Paulo (POLI-USP)  
-Departamento de Engenharia Mecatrônica
+**Prof. Fabrício Junqueira**
+Escola Politécnica da Universidade de São Paulo (POLI-USP)
+Departamento de Engenharia Mecatrônica e de Sistemas Mecânicos (PMR)
 
 ---
 
 ## Referências
 
-As referências completas estão em [`monografia/refs.bib`](monografia/refs.bib). Principais trabalhos que embasam o projeto:
+As referências completas estão em `Monografia/refs.bib` (fonte LaTeX não versionada — ver a nota em [Estrutura do Repositório](#estrutura-do-repositório); a bibliografia compilada está em [`Monografia/main.pdf`](Monografia/main.pdf)). Principais trabalhos que embasam o projeto:
 
 - SAVES, P. Interpretable and explainable surrogate modeling for simulations: A state-of-the-art survey and perspectives on explainable AI for decision-making. *arXiv preprint*, 2025.
 
@@ -384,4 +539,4 @@ As referências completas estão em [`monografia/refs.bib`](monografia/refs.bib)
 
 ---
 
-> *Este repositório é parte integrante do Trabalho de Conclusão de Curso submetido à Escola Politécnica da USP como requisito parcial para obtenção do título de Engenheiro de Produção.*
+> *Este repositório é parte integrante do Trabalho de Conclusão de Curso submetido à Escola Politécnica da USP como requisito parcial para obtenção do título de Engenheiro Mecatrônico.*
