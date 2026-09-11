@@ -61,33 +61,60 @@ este módulo existe para tornar impossível.
    "log_standard" (log1p antes da padronização). É escolha EXPLÍCITA por
    KPI, nunca default automático.
 
-CONTRATO DE COLUNAS DO DATASET DE ENTRADA
------------------------------------------
-O DataFrame esperado é a saída de aggregate_replications(): uma linha por
-ponto, com
+GRANULARIDADE DO DATASET — A DECISÃO MAIS IMPORTANTE DESTE MÓDULO
+------------------------------------------------------------------
+O módulo aceita as DUAS granularidades e detecta sozinho qual chegou. A
+escolha entre elas não é de conveniência: muda o que o metamodelo aprende.
 
-    point_id | <colunas de parâmetro> | <por KPI>: _mean, _std, _n, _sem,
-                                                   _sample_weight
+(A) POR REPLICAÇÃO — o CAMINHO PADRÃO do projeto.
 
-Duas consequências práticas:
+    Saída de excel_bridge.select_complete_runs(): K linhas por ponto do
+    DoE, com os MESMOS parâmetros de entrada e K resultados DIFERENTES,
+    porque o simulador é estocástico.
 
-  - O alvo de um KPI é a coluna f"{kpi}_mean", NÃO a coluna `kpi` pura.
-    Ver _resolve_target_column() para o detalhe (há um fallback documentado
-    para datasets não agregados, usado em teste/exploração).
-  - As colunas extras (point_id, _std, _n, _sem, _sample_weight) são
-    ignoradas na montagem de X pelo remainder="drop" do ColumnTransformer.
-    Elas NÃO são destruídas: split() devolve DataFrames completos, então
-    f"{kpi}_sample_weight" continua acessível para a Fase 3 passar ao
-    `fit` do metamodelo (hetGP, regressão ponderada).
+        point_id | replication_id | seed | <params> | <KPIs>
 
-    SOBRE O PESO AMOSTRAL, e este ponto custou uma medição para aparecer:
-    NÃO passe a coluna f"{kpi}_sample_weight" crua ao metamodelo quando o
-    KPI usa method="log_standard". O peso é 1/variância medida na escala
-    BRUTA, e o modelo treina na escala transformada — misturar as duas
-    desfaz o ajuste. Use transform_sample_weight(), que converte o peso
-    para a escala em que o alvo é de fato treinado. O docstring daquele
-    método traz a medição do estrago (R² de teste caindo de 0,75 para
-    -0,71 num cenário real do projeto).
+    O alvo é a coluna `kpi` pura.
+
+    POR QUE TREINAR ASSIM: as K réplicas de um ponto são a evidência
+    empírica de que aquela combinação de parâmetros não produz UM valor,
+    e sim uma distribuição. Entregá-las ao metamodelo é o que o força a
+    generalizar a tendência em vez de decorar observações — com K alvos
+    conflitantes sobre o mesmo X, não existe função que passe por todos,
+    e o ajuste é empurrado para a resposta média por construção, sem que
+    nenhuma regularização precise ser imposta de fora. É também a única
+    granularidade que preserva a estrutura de replicação exigida por
+    métodos que modelam o ruído explicitamente (ver a tensão (b) em
+    metamodels/gp_family.py).
+
+(B) POR PONTO — agregado.
+
+    Saída de replication.aggregate_replications(): uma linha por ponto.
+
+        point_id | <params> | <por KPI>: _mean, _std, _n, _sem, _sample_weight
+
+    O alvo é a coluna f"{kpi}_mean". A consolidação descarta as réplicas
+    individuais e resume o ruído em duas estatísticas. Continua necessária
+    — é dela que sai o teto de ruído de compute_noise_ceiling(), que é a
+    referência de avaliação da Fase 4 — e continua utilizável para treino
+    quando se quiser comparar as duas abordagens.
+
+CUIDADO QUE ATRAVESSA AS DUAS: com dados por replicação o split TEM de ser
+agrupado por point_id, senão réplicas do mesmo ponto caem nos dois lados e
+o metamodelo é avaliado prevendo um X que já viu. split() detecta e agrupa
+sozinho; ver o docstring dele.
+
+O peso amostral só existe no caminho (B): em (A) cada linha é uma
+observação de peso um. Se usar (B) com method="log_standard", converta o
+peso com transform_sample_weight() antes de passá-lo ao metamodelo — o
+peso é 1/variância na escala BRUTA e o modelo treina na transformada;
+misturar as duas desfaz o ajuste (R² de teste caindo de 0,75 para -0,71
+num cenário real do projeto, medido no docstring daquele método).
+
+Colunas que não são parâmetro declarado — point_id, replication_id, seed,
+_std, _n, _sem, _sample_weight — são ignoradas na montagem de X pelo
+remainder="drop", mas NÃO são destruídas: split() devolve DataFrames
+completos.
 
 FORA DE ESCOPO deste módulo: treino de metamodelos, hiperparâmetros,
 métricas e XAI. Ele termina em X_train/X_test, y_train/y_test e no objeto
@@ -103,7 +130,7 @@ import numpy as np
 import pandas as pd
 
 from sklearn.compose import ColumnTransformer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, OrdinalEncoder
 
@@ -457,28 +484,45 @@ class PreprocessingPipeline:
         dataset: pd.DataFrame,
         test_size: float = 0.2,
         seed: int = 42,
+        group_col: str = "point_id",
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Divide o dataset agregado em treino/teste. Chamar ANTES de fit().
+        """Divide o dataset em treino/teste. Chamar ANTES de fit().
 
-        Devolve DataFrames COMPLETOS (não arrays): as colunas que este
-        módulo não usa — point_id, {kpi}_std, {kpi}_n, {kpi}_sem e
-        principalmente {kpi}_sample_weight — continuam disponíveis para a
-        Fase 3 (ex.: passar sample_weight ao fit de um metamodelo
-        ponderado). Este módulo não gerencia sample_weight; só não o
-        destrói.
+        ACEITA AS DUAS GRANULARIDADES, e detecta sozinho qual chegou:
 
-        Um train_test_split comum basta porque o dataset agregado tem UMA
-        linha por ponto do DoE (as replicações já foram consolidadas por
-        aggregate_replications) — não há risco de o mesmo ponto cair dos
-        dois lados.
+        1. POR REPLICAÇÃO (recomendado) — a saída de
+           excel_bridge.select_complete_runs(): K linhas por ponto do DoE,
+           com os mesmos parâmetros de entrada e K resultados DIFERENTES,
+           por causa da estocasticidade do simulador. É sobre estas linhas
+           que o metamodelo deve ser treinado (ver a nota abaixo).
 
-        NOTA PARA O FUTURO (não implementar agora): se algum dia o pipeline
-        passar a treinar sobre os dados BRUTOS por replicação, o split
-        precisará ser AGRUPADO por `point_id` (GroupShuffleSplit /
-        GroupKFold com groups=raw["point_id"]). Sem isso, réplicas do mesmo
-        ponto cairiam em lados opostos e o teste ficaria contaminado — o
-        metamodelo veria, no treino, praticamente a mesma linha que precisa
-        prever no teste.
+        2. POR PONTO — a saída de replication.aggregate_replications():
+           uma linha por ponto, com a média das replicações. Continua
+           suportada, e é o que compute_noise_ceiling() e as estatísticas
+           de dispersão consomem.
+
+        SPLIT AGRUPADO, E POR QUE ELE NÃO É OPCIONAL
+
+        Com dados por replicação, um train_test_split comum seria um erro
+        grave: as K réplicas de um ponto têm EXATAMENTE os mesmos valores
+        de entrada, então algumas cairiam no treino e outras no teste, e o
+        metamodelo seria avaliado prevendo uma linha de X que ele já viu no
+        treino. Isso não é generalização — é consulta. As métricas da Fase 4
+        ficariam infladas de forma arbitrária, e tanto pior quanto maior o
+        número de replicações.
+
+        Por isso, quando `group_col` existe e tem valores repetidos, o
+        split passa automaticamente a ser AGRUPADO (GroupShuffleSplit): um
+        ponto inteiro, com todas as suas réplicas, vai para um lado só. Não
+        há como pedir o comportamento errado — a detecção é automática
+        justamente porque o erro seria silencioso.
+
+        `test_size` passa então a ser a fração de PONTOS, não de linhas.
+
+        Devolve DataFrames COMPLETOS (não arrays), então as colunas que
+        este módulo não usa continuam disponíveis para a Fase 3 —
+        point_id, replication_id e seed no caso por replicação; _std, _n,
+        _sem e _sample_weight no caso por ponto.
         """
         if len(dataset) < 2:
             raise ValueError(
@@ -486,13 +530,42 @@ class PreprocessingPipeline:
                 "treino e teste."
             )
 
-        train_df, test_df = train_test_split(
-            dataset, test_size=test_size, random_state=seed, shuffle=True,
-        )
-        logger.info(
-            "split: %d pontos -> %d treino / %d teste (test_size=%s, seed=%s).",
-            len(dataset), len(train_df), len(test_df), test_size, seed,
-        )
+        tem_grupo = group_col in dataset.columns
+        se_repete = bool(tem_grupo and dataset[group_col].duplicated().any())
+
+        if se_repete:
+            # dados por replicação: agrupar é obrigatório (ver docstring)
+            separador = GroupShuffleSplit(
+                n_splits=1, test_size=test_size, random_state=seed
+            )
+            idx_treino, idx_teste = next(
+                separador.split(dataset, groups=dataset[group_col])
+            )
+            train_df = dataset.iloc[idx_treino]
+            test_df = dataset.iloc[idx_teste]
+            logger.info(
+                "split AGRUPADO por '%s': %d pontos (%d linhas) -> %d/%d pontos "
+                "(%d/%d linhas) treino/teste. Nenhum ponto aparece dos dois lados.",
+                group_col, dataset[group_col].nunique(), len(dataset),
+                train_df[group_col].nunique(), test_df[group_col].nunique(),
+                len(train_df), len(test_df),
+            )
+        else:
+            if not tem_grupo:
+                logger.warning(
+                    "split: coluna '%s' ausente — usando divisão simples. Se estes "
+                    "dados forem por replicação, réplicas do mesmo ponto podem cair "
+                    "nos dois lados e as métricas ficarão infladas. Mantenha a "
+                    "coluna de identificação do ponto no DataFrame.", group_col,
+                )
+            train_df, test_df = train_test_split(
+                dataset, test_size=test_size, random_state=seed, shuffle=True,
+            )
+            logger.info(
+                "split: %d linhas -> %d treino / %d teste (test_size=%s, seed=%s).",
+                len(dataset), len(train_df), len(test_df), test_size, seed,
+            )
+
         return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
     # -----------------------------------------------------------------
@@ -627,6 +700,15 @@ class PreprocessingPipeline:
 
         coluna_peso = f"{kpi}{WEIGHT_SUFFIX}"
         if coluna_peso not in df.columns:
+            if kpi in df.columns:
+                raise ValueError(
+                    f"KPI '{kpi}': este DataFrame é POR REPLICAÇÃO (tem a coluna "
+                    f"'{kpi}', não '{kpi}{TARGET_SUFFIX}'), e aí não há peso a "
+                    "aplicar — cada linha é uma observação de peso um, e a "
+                    "informação sobre o ruído está nas próprias réplicas. Passe "
+                    "sample_weight=None ao metamodelo. O peso só existe no "
+                    "caminho agregado, de aggregate_replications()."
+                )
             raise ValueError(
                 f"KPI '{kpi}': coluna '{coluna_peso}' ausente. Esperado o dataset "
                 "agregado de aggregate_replications(), que a produz."
@@ -770,25 +852,23 @@ class PreprocessingPipeline:
 
     @staticmethod
     def _resolve_target_column(df: pd.DataFrame, kpi: str) -> str:
-        """Descobre qual coluna carrega o alvo do KPI.
+        """Descobre qual coluna carrega o alvo do KPI, pela granularidade.
 
-        Caminho normal: f"{kpi}_mean", a média das replicações que
-        aggregate_replications() produz — é ESSE o alvo do metamodelo.
+        Dado POR REPLICAÇÃO (caminho padrão): a coluna é `kpi` puro — o
+        resultado daquela execução individual.
 
-        Fallback documentado: se a coluna _mean não existir mas existir uma
-        coluna com o nome puro do KPI, ela é usada. Serve a datasets não
-        agregados (exploração, teste, ou uma resposta determinística sem
-        replicação). Fica em INFO no log para não passar despercebido.
+        Dado POR PONTO (agregado): a coluna é f"{kpi}_mean", a média das
+        replicações.
+
+        A coluna agregada tem precedência quando as duas existem, porque um
+        DataFrame que carrega f"{kpi}_mean" veio de aggregate_replications()
+        e ali o alvo é a média. Ver a seção de granularidade no docstring do
+        módulo.
         """
         alvo = f"{kpi}{TARGET_SUFFIX}"
         if alvo in df.columns:
             return alvo
         if kpi in df.columns:
-            logger.info(
-                "KPI '%s': coluna '%s' não encontrada; usando a coluna '%s'. "
-                "Isso só é esperado em dataset NÃO agregado — o alvo canônico "
-                "é a média das replicações.", kpi, alvo, kpi,
-            )
             return kpi
         raise ValueError(
             f"KPI '{kpi}': nem a coluna '{alvo}' nem '{kpi}' existem no "

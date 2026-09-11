@@ -597,3 +597,128 @@ def _valor_qualquer(spec, rng, n):
     if spec.ordered:
         return rng.integers(0, 2, n)
     return pd.Categorical(rng.choice(["0", "1"], n), categories=["0", "1"])
+
+
+# =====================================================================
+# 8. Granularidade por replicação e split agrupado
+# =====================================================================
+
+@pytest.fixture
+def dados_por_replicacao(specs, design):
+    """K linhas por ponto, mesmos parâmetros e resultados DIFERENTES — a
+    granularidade em que o metamodelo deve ser treinado."""
+    plan = build_execution_plan(design, ReplicationPolicy(5, seed_base=0))
+    rng = np.random.default_rng(SEED)
+
+    carga = plan["taxa_chegada"].to_numpy(dtype="float64")
+    capacidade = plan["num_operadores"].to_numpy(dtype="float64")
+    utilizacao = np.clip(carga / (capacidade * 1.4), 0.05, 0.97)
+
+    raw = plan.copy()
+    raw["lead_time"] = (
+        5.0 * utilizacao / (1.0 - utilizacao)
+        * rng.lognormal(0.0, 0.15, size=len(plan))
+    )
+    return raw
+
+
+def test_replicas_do_mesmo_ponto_tem_x_igual_e_y_diferente(dados_por_replicacao):
+    """A premissa da abordagem: as K réplicas de um ponto são a evidência de
+    que aquela entrada não produz UM valor, e sim uma distribuição."""
+    ponto = dados_por_replicacao[dados_por_replicacao["point_id"] == 0]
+
+    assert len(ponto) == 5
+    assert ponto["taxa_chegada"].nunique() == 1       # X idêntico
+    assert ponto["lead_time"].nunique() == 5          # y diferente
+
+
+def test_split_agrupa_automaticamente_por_ponto(specs, dados_por_replicacao):
+    """Com dados por replicação, NENHUM ponto pode aparecer dos dois lados —
+    senão o metamodelo é avaliado prevendo um X que já viu no treino."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, test_df = pipe.split(dados_por_replicacao, test_size=0.25, seed=7)
+
+    assert set(train_df["point_id"]).isdisjoint(set(test_df["point_id"]))
+    # nenhum ponto foi perdido no caminho
+    assert (
+        set(train_df["point_id"]) | set(test_df["point_id"])
+        == set(dados_por_replicacao["point_id"])
+    )
+    # e as réplicas de cada ponto ficaram inteiras de um lado só
+    for parte in (train_df, test_df):
+        assert (parte.groupby("point_id").size() == 5).all()
+
+
+def test_split_agrupado_evita_metrica_inflada(specs, dados_por_replicacao):
+    """O custo concreto de não agrupar: o conjunto de teste passa a conter
+    entradas idênticas às do treino, e a métrica deixa de medir
+    generalização."""
+    from sklearn.model_selection import train_test_split as split_simples
+
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    agrupado_treino, agrupado_teste = pipe.split(
+        dados_por_replicacao, test_size=0.25, seed=7
+    )
+    solto_treino, solto_teste = split_simples(
+        dados_por_replicacao, test_size=0.25, random_state=7
+    )
+
+    vazamento_agrupado = len(
+        set(agrupado_treino["point_id"]) & set(agrupado_teste["point_id"])
+    )
+    vazamento_solto = len(set(solto_treino["point_id"]) & set(solto_teste["point_id"]))
+
+    assert vazamento_agrupado == 0
+    assert vazamento_solto > 0, (
+        "o split solto deveria contaminar — se não contamina, o teste perdeu o sentido"
+    )
+
+
+def test_alvo_por_replicacao_usa_a_coluna_pura(specs, dados_por_replicacao):
+    """Em dado por replicação o alvo é `kpi`, não `kpi_mean` (que nem
+    existe)."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, _ = pipe.split(dados_por_replicacao, test_size=0.25, seed=7)
+    pipe.fit(train_df)
+
+    assert pipe._resolve_target_column(train_df, "lead_time") == "lead_time"
+    assert np.allclose(
+        pipe.transform_y(train_df, "lead_time"),
+        (np.log1p(train_df["lead_time"].to_numpy(dtype="float64"))
+         - pipe.targets_["lead_time"].mean_) / pipe.targets_["lead_time"].scale_,
+    )
+
+
+def test_x_identico_para_replicas_do_mesmo_ponto(specs, dados_por_replicacao):
+    """As K réplicas têm de produzir exatamente a mesma linha de X — é isso
+    que força o metamodelo para a tendência em vez de decorar."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, _ = pipe.split(dados_por_replicacao, test_size=0.25, seed=7)
+    pipe.fit(train_df)
+
+    primeiro = train_df["point_id"].iloc[0]
+    replicas = train_df[train_df["point_id"] == primeiro]
+    X = pipe.transform_X(replicas)
+
+    assert len(X) > 1
+    assert np.allclose(X, X[0]), "réplicas do mesmo ponto deram X diferente"
+
+
+def test_peso_amostral_recusa_dado_por_replicacao(specs, dados_por_replicacao):
+    """Em dado por replicação não há peso: cada linha é uma observação de
+    peso um, e a informação de ruído está nas próprias réplicas."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, _ = pipe.split(dados_por_replicacao, test_size=0.25, seed=7)
+    pipe.fit(train_df)
+
+    with pytest.raises(ValueError, match="POR REPLICAÇÃO"):
+        pipe.transform_sample_weight(train_df, "lead_time")
+
+
+def test_dataset_agregado_continua_com_split_simples(fitted):
+    """O caminho agregado (1 linha por ponto) não precisa de agrupamento e
+    não deve ser penalizado por ele."""
+    _, train_df, test_df = fitted
+
+    assert train_df["point_id"].duplicated().sum() == 0
+    assert set(train_df["point_id"]).isdisjoint(set(test_df["point_id"]))
