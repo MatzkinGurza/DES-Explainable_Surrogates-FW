@@ -119,10 +119,10 @@ def _destino_do_peso(estimator) -> str | None:
 
 def build_mlp(
     hidden_layer_sizes: tuple[int, ...] = (64, 64),
-    alpha: float = 1e-2,
+    alpha: float = 1e-1,
     activation: str = "relu",
     solver: str = "lbfgs",
-    max_iter: int = 2000,
+    max_iter: int = 5000,
 ) -> MLPRegressor:
     """Perceptron multicamadas do sklearn, com defaults para POUCO DADO.
 
@@ -138,19 +138,40 @@ def build_mlp(
     (learning_rate_init, batch_size, early_stopping) são IGNORADOS — pô-los
     na busca só multiplica o custo sem mudar resultado nenhum.
 
-    alpha=1e-2 em vez do default 1e-4: penalização L2 duas ordens de
-    grandeza maior. Com resposta ruidosa e poucos pontos, a rede tem
-    capacidade de sobra para memorizar o ruído de replicação; a
-    regularização é o que segura isso. É o hiperparâmetro mais importante
-    do grid.
+    alpha=1e-1 em vez do default 1e-4 do sklearn: penalização L2 três
+    ordens de grandeza maior. Com resposta ruidosa e poucos pontos, a rede
+    tem capacidade de sobra para memorizar o ruído de replicação, e a
+    regularização é o único freio. É o hiperparâmetro mais importante do
+    grid, e o default foi calibrado por medição. Num sintético de 200
+    pontos com piso de ruído 0.1445 (em unidades de desvio de y), varrendo
+    alpha com o otimizador rodando até convergir de verdade:
+
+        alpha    RMSE treino   RMSE teste
+        1e-4        0.097        0.181
+        1e-2        0.067        0.181
+        1e-1        0.141        0.147
+        3e-1        0.149        0.138   <- bate o piso de ruído
+        1.0         0.156        0.150
+
+    O padrão é inequívoco: abaixo de 1e-1 a rede desce no treino e SOBE no
+    teste, que é a assinatura de estar ajustando ruído.
+
+    max_iter=5000 porque lbfgs conta ITERAÇÕES, não épocas. O número é
+    generoso de propósito, e aqui vale um cuidado que custou uma medição
+    para aparecer: um max_iter apertado FUNCIONA COMO REGULARIZADOR
+    IMPLÍCITO (early stopping disfarçado). Com o alpha fraco de antes, o
+    modelo dava RMSE de teste 0.149 parando em 200 iterações e 0.181 ao
+    convergir em 2778 — ou seja, o limite de iteração estava escondendo o
+    sobreajuste e fazendo o modelo parecer melhor do que era. Isso é
+    especialmente ruim num GridSearchCV: a busca varre alpha achando que
+    controla a regularização, enquanto um segundo regularizador não
+    declarado age por baixo. Com alpha bem escolhido o problema some
+    sozinho — a penalização mais forte condiciona melhor o objetivo e a
+    convergência chega em ~300-600 iterações, MUITO antes do teto.
 
     (64, 64): duas camadas de largura moderada. Mais fundo do que isso, no
     nosso regime, adiciona parâmetros sem dado para ajustá-los. O grid
     inclui arquiteturas menores de propósito, inclusive uma camada só.
-
-    max_iter=2000 porque lbfgs conta ITERAÇÕES, não épocas; o default 200
-    costuma parar antes de convergir e produzir um ConvergenceWarning que
-    seria fácil confundir com "a família não serve".
 
     Aceita sample_weight (sklearn >= 1.7), então o peso por ponto do
     aggregate_replications() chega ao treino como nas árvores.
@@ -170,6 +191,8 @@ def build_mlp(
 #: por ser o eixo que de fato controla o sobreajuste aqui.
 GRID_MLP: dict[str, list] = {
     "hidden_layer_sizes": [(32,), (64,), (32, 32), (64, 64), (128, 64)],
-    "alpha": [1e-4, 1e-3, 1e-2, 1e-1, 1.0],
+    # 3e-1 entra para a grade CERCAR o ótimo medido (~0.3) em vez de deixá-lo
+    # num vão entre 1e-1 e 1.0 — ver a tabela no docstring de build_mlp
+    "alpha": [1e-4, 1e-3, 1e-2, 1e-1, 3e-1, 1.0],
     "activation": ["relu", "tanh"],
 }

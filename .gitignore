@@ -57,3 +57,6 @@ Desktop.ini
 .idea/
 .vscode/
 *.swp
+
+# --- Documento de trabalho (nao versionado) -----------------
+to_writed.md
