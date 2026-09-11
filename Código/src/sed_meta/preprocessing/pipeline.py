@@ -78,8 +78,16 @@ Duas consequências práticas:
     ignoradas na montagem de X pelo remainder="drop" do ColumnTransformer.
     Elas NÃO são destruídas: split() devolve DataFrames completos, então
     f"{kpi}_sample_weight" continua acessível para a Fase 3 passar ao
-    `fit` do metamodelo (hetGP, regressão ponderada). Este módulo não usa
-    nem gerencia sample_weight — só não atrapalha quem usa.
+    `fit` do metamodelo (hetGP, regressão ponderada).
+
+    SOBRE O PESO AMOSTRAL, e este ponto custou uma medição para aparecer:
+    NÃO passe a coluna f"{kpi}_sample_weight" crua ao metamodelo quando o
+    KPI usa method="log_standard". O peso é 1/variância medida na escala
+    BRUTA, e o modelo treina na escala transformada — misturar as duas
+    desfaz o ajuste. Use transform_sample_weight(), que converte o peso
+    para a escala em que o alvo é de fato treinado. O docstring daquele
+    método traz a medição do estrago (R² de teste caindo de 0,75 para
+    -0,71 num cenário real do projeto).
 
 FORA DE ESCOPO deste módulo: treino de metamodelos, hiperparâmetros,
 métricas e XAI. Ele termina em X_train/X_test, y_train/y_test e no objeto
@@ -109,6 +117,10 @@ TARGET_METHODS = ("standard", "log_standard", "none")
 #: Sufixo da coluna que carrega a média das replicações de um KPI — é ela
 #: o alvo do metamodelo, não o nome "puro" do KPI (ver docstring do módulo).
 TARGET_SUFFIX = "_mean"
+
+#: Sufixo da coluna de peso amostral (1/variância) de um KPI, produzida por
+#: replication.aggregate_replications(). Ver transform_sample_weight().
+WEIGHT_SUFFIX = "_sample_weight"
 
 
 # =====================================================================
@@ -558,6 +570,108 @@ class PreprocessingPipeline:
         self._require_fitted("inverse_transform_y")
         target = self._get_target(kpi)
         return target.inverse_transform(np.asarray(y_t, dtype="float64"))
+
+    def transform_sample_weight(self, df: pd.DataFrame, kpi: str) -> np.ndarray:
+        """Peso amostral CONSISTENTE com a escala em que o alvo é treinado.
+
+        POR QUE ISTO EXISTE — é a armadilha mais cara deste módulo.
+
+        replication.aggregate_replications() calcula o peso como 1/variância
+        das replicações, medida na escala BRUTA do KPI. Mas o metamodelo não
+        treina na escala bruta: treina no que transform_y() devolve. Quando o
+        KPI usa method="log_standard", passar o peso bruto direto ao `fit`
+        mistura duas escalas — corrige-se uma heterocedasticidade que a
+        própria transformação logarítmica já removeu.
+
+        O estrago é grande e silencioso. Medido no cenário do notebook
+        (40 pontos, tempo de fila entre 1,2 e 127 min): a variância bruta
+        varia por um fator de 3,1e5 entre o ponto mais estável e o mais
+        ruidoso, e ponderar por 1/variância colapsa o tamanho efetivo de
+        amostra (Kish) de 40 para 5,1 pontos — o ajuste passa a ser
+        determinado por meia dúzia de pontos rápidos. Um Random Forest que
+        alcança R²=0,75 no teste SEM peso cai para R²=-0,71 COM o peso bruto.
+        Nada falha: sai um modelo, com métrica ruim que se confundiria com
+        "esta família não serve para o problema".
+
+        COMO O PESO É CONVERTIDO
+
+        - "none" e "standard": a transformação é afim, então ela só reescala
+          a variância por uma constante global. Os pesos RELATIVOS entre
+          pontos não mudam, e nada precisa ser corrigido.
+
+        - "log_standard": a transformação é não linear, e a conversão usa o
+          método delta — Var(log1p(Y)) ≈ Var(Y)/(1+E[Y])² —, que em termos
+          de peso vira
+
+              peso_transformado ≈ peso_bruto · (1 + média_do_ponto)²
+
+          Verificado contra a variância empírica do log no mesmo cenário:
+          correlação 0,993, erro relativo mediano de 3,9%, e o tamanho
+          efetivo de amostra passa de 5,1 (peso bruto) para 16,3 — contra
+          16,9 do peso exato calculado sobre as replicações individuais.
+
+        LIMITE DA APROXIMAÇÃO: o método delta é um truncamento de primeira
+        ordem e degrada quando o desvio do ponto é grande em relação à sua
+        média (coeficiente de variação alto). Para o peso — que é uma
+        ponderação relativa, não uma estimativa a ser reportada — essa
+        precisão é suficiente. Se algum dia for preciso o valor exato, o
+        caminho é calcular a variância do log a partir das replicações
+        individuais, antes da agregação.
+
+        Devolve NaN onde o peso de origem é NaN (variância nula, isto é,
+        todas as replicações do ponto idênticas). Tratar esses casos é de
+        quem chama: este módulo não inventa peso para eles.
+        """
+        self._require_fitted("transform_sample_weight")
+        target = self._get_target(kpi)
+
+        coluna_peso = f"{kpi}{WEIGHT_SUFFIX}"
+        if coluna_peso not in df.columns:
+            raise ValueError(
+                f"KPI '{kpi}': coluna '{coluna_peso}' ausente. Esperado o dataset "
+                "agregado de aggregate_replications(), que a produz."
+            )
+
+        peso = pd.to_numeric(df[coluna_peso], errors="coerce").to_numpy(dtype="float64")
+
+        if target.method == "log_standard":
+            media = pd.to_numeric(
+                df[self._resolve_target_column(df, kpi)], errors="coerce"
+            ).to_numpy(dtype="float64")
+            peso = peso * (1.0 + media) ** 2
+
+        # Fator global (não altera pesos relativos); mantém o peso na unidade
+        # do alvo transformado, que é o que um estimador ponderado espera.
+        peso = peso * target.scale_ ** 2
+
+        self._avisar_peso_degenerado(peso, kpi)
+        return peso
+
+    @staticmethod
+    def _avisar_peso_degenerado(peso: np.ndarray, kpi: str) -> None:
+        """Avisa quando a ponderação concentra o ajuste em poucos pontos.
+
+        Usa o tamanho efetivo de amostra de Kish, n_ef = (Σw)²/Σw², que é
+        quantos pontos de peso igual produziriam a mesma precisão. Um n_ef
+        muito abaixo do número de pontos significa que o metamodelo está
+        sendo ajustado por uma fração da amostra — situação que não levanta
+        exceção e que, sem este aviso, apareceria só como métrica ruim no
+        fim da Fase 4, quando já é difícil rastrear a causa.
+        """
+        finitos = peso[np.isfinite(peso) & (peso > 0)]
+        if finitos.size < 2:
+            return
+
+        n_efetivo = float(finitos.sum() ** 2 / np.sum(finitos ** 2))
+        if n_efetivo < 0.25 * finitos.size:
+            logger.warning(
+                "KPI '%s': o peso amostral é muito desigual — tamanho efetivo "
+                "de amostra (Kish) = %.1f de %d pontos, ou seja, o ajuste será "
+                "dominado por uma fração da amostra. Verifique se o método de "
+                "transformação do alvo é adequado ao KPI, e considere treinar "
+                "também SEM peso para comparar.",
+                kpi, n_efetivo, finitos.size,
+            )
 
     # -----------------------------------------------------------------
     # nomes das features
