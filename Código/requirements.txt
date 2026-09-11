@@ -8,7 +8,8 @@ pandas>=2.2
 scipy>=1.13                    # scipy.stats.qmc: LatinHypercube, Sobol
  
 # --- Fase 1: DoE --------------------------------------------------
-smt>=2.14                      # smt.sampling_methods.LHS(criterion="ese")
+smt>=2.14                      # Fase 1: smt.sampling_methods.LHS(criterion="ese")
+                               # Fase 3: smt.surrogate_models.KRG (gp_family)
 SALib>=1.5                     # índices de Sobol (triangulação independente do SMT-EX)
 pyDOE3>=1.6                    # screening: fatorial fracionado / Plackett-Burman
  
@@ -20,8 +21,12 @@ joblib>=1.4                    # persistência do PreprocessingPipeline ajustado
                                # (vem junto com o scikit-learn, mas é importado direto)
 
 # --- Fase 3: metamodelos -------------------------------------------
-scikit-learn>=1.5              # ColumnTransformer/OneHotEncoder (preprocessing) + os metamodelos
+scikit-learn>=1.7              # ColumnTransformer/OneHotEncoder (preprocessing) + os metamodelos
                                # LinearRegression, PolynomialFeatures, RandomForest, MLPRegressor, CV
+                               # PISO 1.7 (não 1.5): MLPRegressor.fit só passou a aceitar
+                               # sample_weight em 1.7 (versionadded na fonte do sklearn).
+                               # Em 1.5/1.6 o peso de aggregate_replications() seria
+                               # descartado com aviso em neural_family.
 xgboost>=3.4                   # GBT (quarta família de metamodelo)
 hetgpy>=1.0                    # Processo Gaussiano heterocedástico (correto para SED estocástico)
  

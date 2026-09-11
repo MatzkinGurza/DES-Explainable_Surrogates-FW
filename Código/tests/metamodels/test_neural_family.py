@@ -1,7 +1,10 @@
 """Testes da família neural (Fase 3)."""
 
+import warnings
+
 import numpy as np
 import pytest
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.model_selection import GridSearchCV
 
 from sed_meta.metamodels.baseline import build_dummy_mean
@@ -100,9 +103,49 @@ def test_grid_nao_traz_parametros_de_minilote():
 
 
 def test_regularizacao_padrao_e_mais_forte_que_a_do_sklearn():
-    """alpha=1e-2 contra o default 1e-4: com resposta ruidosa e poucos
-    pontos, a rede tem capacidade de sobra para memorizar o ruído."""
-    assert build_mlp().get_params()["alpha"] > 1e-4
+    """alpha=1e-1 contra o default 1e-4 do sklearn: com resposta ruidosa e
+    poucos pontos, a rede tem capacidade de sobra para memorizar o ruído."""
+    assert build_mlp().get_params()["alpha"] >= 1e-1
+
+
+def test_defaults_convergem_de_verdade(dados):
+    """Trava a correção mais sutil desta família.
+
+    Um max_iter apertado funciona como EARLY STOPPING DISFARÇADO: segura o
+    sobreajuste sem estar declarado em lugar nenhum, e portanto sem o
+    GridSearchCV poder controlá-lo enquanto varre alpha. Se este teste
+    falhar, o modelo voltou a depender do teto de iteração como
+    regularizador implícito — a correção é subir alpha, não subir max_iter.
+    """
+    X_train, _X_test, y_train, _y_test, _ = dados
+
+    with warnings.catch_warnings(record=True) as registro:
+        warnings.simplefilter("always")
+        modelo = build_mlp().fit(X_train, y_train)
+
+    convergencia = [
+        a for a in registro if issubclass(a.category, ConvergenceWarning)
+    ]
+    assert not convergencia, (
+        f"o lbfgs não convergiu em {modelo.get_params()['max_iter']} iterações "
+        f"(parou em {modelo.n_iter_})"
+    )
+    assert modelo.n_iter_ < modelo.get_params()["max_iter"], (
+        "n_iter_ encostou no teto: a regularização está vindo do limite de "
+        "iteração, não do alpha"
+    )
+
+
+def test_alpha_fraco_sobreajusta_e_alpha_forte_nao(dados):
+    """A medição que justifica o default: abaixo de 1e-1 a rede melhora no
+    treino e PIORA no teste — assinatura de estar ajustando ruído."""
+    X_train, X_test, y_train, y_test, _ = dados
+
+    fraco = build_mlp(alpha=1e-4).fit(X_train, y_train)
+    forte = build_mlp(alpha=3e-1).fit(X_train, y_train)
+
+    assert rmse(y_train, fraco.predict(X_train)) < rmse(y_train, forte.predict(X_train))
+    assert rmse(y_test, forte.predict(X_test)) < rmse(y_test, fraco.predict(X_test))
 
 
 def test_alpha_controla_o_sobreajuste(dados):
