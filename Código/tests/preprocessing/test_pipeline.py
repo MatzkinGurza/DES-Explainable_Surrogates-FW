@@ -500,3 +500,100 @@ def test_integracao_doe_ate_matrizes(specs, target_specs):
         pipe.inverse_transform_y(y_test, "lead_time"),
         test_df["lead_time_mean"].to_numpy(dtype="float64"),
     )
+
+
+# =====================================================================
+# 7. Peso amostral consistente com a escala do alvo
+# =====================================================================
+
+def test_peso_inalterado_quando_a_transformacao_e_afim(specs, dataset):
+    """Com "standard" e "none" a transformação do alvo é afim, então ela só
+    reescala a variância por uma constante global: os pesos RELATIVOS entre
+    pontos não mudam, e não há o que corrigir."""
+    for metodo in ("standard", "none"):
+        pipe = PreprocessingPipeline(specs, [TargetTransformSpec("throughput", metodo)])
+        train_df, _ = pipe.split(dataset, test_size=0.25, seed=5)
+        pipe.fit(train_df)
+
+        bruto = train_df["throughput_sample_weight"].to_numpy(dtype="float64")
+        convertido = pipe.transform_sample_weight(train_df, "throughput")
+
+        razao = convertido / bruto
+        assert np.allclose(razao, razao[0]), (
+            f"'{metodo}' alterou os pesos relativos; deveria ser fator global"
+        )
+
+
+def test_log_standard_corrige_o_peso_pela_escala(specs, dataset):
+    """Com "log_standard" o peso bruto está na escala errada: ele foi medido
+    na escala BRUTA e o modelo treina na escala do log. A correção usa o
+    método delta, Var(log1p Y) ≈ Var(Y)/(1+E[Y])², que em peso vira
+    multiplicar por (1+média)²."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, _ = pipe.split(dataset, test_size=0.25, seed=5)
+    pipe.fit(train_df)
+
+    bruto = train_df["lead_time_sample_weight"].to_numpy(dtype="float64")
+    media = train_df["lead_time_mean"].to_numpy(dtype="float64")
+    esperado = bruto * (1.0 + media) ** 2 * pipe.targets_["lead_time"].scale_ ** 2
+
+    assert np.allclose(pipe.transform_sample_weight(train_df, "lead_time"), esperado)
+
+
+def test_correcao_do_peso_aumenta_o_tamanho_efetivo_de_amostra(specs, dataset):
+    """O efeito prático da correção: o peso bruto concentra o ajuste em
+    poucos pontos, e é isso que destrói o metamodelo silenciosamente."""
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("lead_time", "log_standard")])
+    train_df, _ = pipe.split(dataset, test_size=0.25, seed=5)
+    pipe.fit(train_df)
+
+    def kish(w):
+        w = w[np.isfinite(w) & (w > 0)]
+        return float(w.sum() ** 2 / np.sum(w**2))
+
+    bruto = kish(train_df["lead_time_sample_weight"].to_numpy(dtype="float64"))
+    corrigido = kish(pipe.transform_sample_weight(train_df, "lead_time"))
+
+    assert corrigido > bruto, (
+        f"a correção deveria espalhar o peso: {bruto:.2f} -> {corrigido:.2f}"
+    )
+
+
+def test_peso_degenerado_avisa(specs, caplog):
+    """Peso muito desigual não levanta exceção e não aparece em lugar nenhum
+    até virar métrica ruim na Fase 4. Tem de avisar."""
+    rng = np.random.default_rng(3)
+    df = pd.DataFrame({s.name: _valor_qualquer(s, rng, 20) for s in specs})
+    df["kpi_mean"] = rng.uniform(1.0, 100.0, 20)
+    # variância proporcional ao quadrado da média -> peso muito desigual
+    df["kpi_sample_weight"] = 1.0 / (df["kpi_mean"] ** 2 * 0.03)
+
+    pipe = PreprocessingPipeline(specs, [TargetTransformSpec("kpi", "standard")]).fit(df)
+    with caplog.at_level("WARNING"):
+        pipe.transform_sample_weight(df, "kpi")
+
+    assert any("Kish" in r.message for r in caplog.records)
+
+
+def test_peso_ausente_estoura(fitted):
+    pipe, train_df, _ = fitted
+    with pytest.raises(ValueError, match="sample_weight"):
+        pipe.transform_sample_weight(
+            train_df.drop(columns=["lead_time_sample_weight"]), "lead_time"
+        )
+
+
+def _valor_qualquer(spec, rng, n):
+    """Valores válidos para um spec, só para montar DataFrame de teste."""
+    if spec.type == "float":
+        return rng.uniform(spec.low, spec.high, n)
+    if spec.type == "integer":
+        return rng.integers(spec.low, spec.high + 1, n)
+    if spec.type in ("categorical", "ordinal"):
+        return pd.Categorical(
+            rng.choice(spec.levels, n), categories=spec.levels,
+            ordered=(spec.type == "ordinal"),
+        )
+    if spec.ordered:
+        return rng.integers(0, 2, n)
+    return pd.Categorical(rng.choice(["0", "1"], n), categories=["0", "1"])
