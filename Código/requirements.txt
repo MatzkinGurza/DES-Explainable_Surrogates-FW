@@ -46,6 +46,8 @@ structlog>=25.1                # logging estruturado, alternativa/complemento ao
 # --- Visualização (relatórios, PDP/ICE, figuras da monografia) -------
 matplotlib>=3.9
 seaborn>=0.13
+plotly>=6.0                    # gráficos 3D interativos (inspeção do preenchimento do
+                               # espaço pelo DoE, em notebooks/pipeline.ipynb)
  
 # --- CLI --------------------------------------------------------------
 click>=8.1                     # scripts/run_*.py como CLIs finos
