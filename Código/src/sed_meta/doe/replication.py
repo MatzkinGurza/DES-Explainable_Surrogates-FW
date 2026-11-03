@@ -50,7 +50,7 @@ class ReplicationPolicy:
     """Política fixa: todo ponto do design roda o mesmo número de
     replicações. Sem lógica adaptativa por variância."""
     n_replications: int = 5
-    seed_base: int = 0
+    id_base: int = 0
 
 
 # ---------------------------------------------------------------------
@@ -64,8 +64,8 @@ def build_execution_plan(design: pd.DataFrame, policy: ReplicationPolicy) -> pd.
     Cada linha do plano tem:
       - point_id: identifica de qual linha do design essa réplica veio
       - replication_id: 0..n_replications-1, dentro daquele ponto
-      - seed: determinística, derivada de point_id e replication_id,
-        para reprodutibilidade (mesma seed_base -> mesmo plano sempre)
+      - unique_id: id único da execução, determinístico
+        (id_base + point_id * n_replications + replication_id)
       - as colunas de parâmetros, repetidas em cada réplica do ponto
 
     Este DataFrame é o que vira o cockpit .xlsx que o ProModel percorre
@@ -74,7 +74,7 @@ def build_execution_plan(design: pd.DataFrame, policy: ReplicationPolicy) -> pd.
     Granularidade: estas N x R linhas são exatamente a granularidade
     "uma linha por execução" consumida pelo cockpit Excel em
     sed_meta/sim_interface/excel_bridge.py. build_cockpit_table() recebe
-    este DataFrame como está (mantendo point_id, replication_id, seed e
+    este DataFrame como está (mantendo point_id, replication_id, unique_id e
     os parâmetros como bloco de ENTRADA, nesta ordem) e só acrescenta à
     direita as colunas de KPI vazias que o ProModel vai preencher.
 
@@ -96,11 +96,11 @@ def build_execution_plan(design: pd.DataFrame, policy: ReplicationPolicy) -> pd.
     # point_id crescente, replication_id 0..R-1 dentro de cada ponto.
     point_id = np.repeat(np.arange(n_points), n_rep)
     replication_id = np.tile(np.arange(n_rep), n_points)
-    seed = policy.seed_base + point_id * n_rep + replication_id
+    unique_id = policy.id_base + point_id * n_rep + replication_id
 
     # insert() na posição 0, em ordem inversa, deixa o bloco de
-    # bookkeeping à esquerda: point_id | replication_id | seed | params...
-    plan.insert(0, "seed", seed)
+    # bookkeeping à esquerda: point_id | replication_id | unique_id | params...
+    plan.insert(0, "unique_id", unique_id)
     plan.insert(0, "replication_id", replication_id)
     plan.insert(0, "point_id", point_id)
     return plan

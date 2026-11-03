@@ -2,7 +2,7 @@
 
 Cobre, além do caminho feliz ponta a ponta:
   - preservação de dtype category/ordinal em build_execution_plan(), e a
-    forma do plano (ids, seeds e repetição dos parâmetros);
+    forma do plano (ids, unique_id e repetição dos parâmetros);
   - a regra "nada é deletado silenciosamente": linha parcial, pendente e
     inválida continuam no resultado, marcadas, e o descarte só acontece
     no recorte explícito de select_complete_runs().
@@ -62,7 +62,7 @@ def design(specs):
 
 @pytest.fixture
 def plan(design):
-    return build_execution_plan(design, ReplicationPolicy(n_replications=4, seed_base=1000))
+    return build_execution_plan(design, ReplicationPolicy(n_replications=4, id_base=1000))
 
 
 @pytest.fixture
@@ -130,16 +130,16 @@ def test_plano_preserva_dtypes_do_design(design, plan):
 def test_plano_expande_cada_ponto_em_r_execucoes(design):
     """Forma do plano: point_id crescente, replication_id 0..R-1 dentro de
     cada ponto, e os parâmetros repetidos igualmente em todas as réplicas."""
-    policy = ReplicationPolicy(n_replications=4, seed_base=1000)
+    policy = ReplicationPolicy(n_replications=4, id_base=1000)
     r, n = policy.n_replications, len(design)
     plano = build_execution_plan(design, policy)
 
-    assert list(plano.columns) == ["point_id", "replication_id", "seed"] + list(design.columns)
+    assert list(plano.columns) == ["point_id", "replication_id", "unique_id"] + list(design.columns)
     assert len(plano) == n * r
     assert plano["point_id"].tolist() == [p for p in range(n) for _ in range(r)]
     assert plano["replication_id"].tolist() == [rep for _ in range(n) for rep in range(r)]
-    assert plano["seed"].tolist() == [
-        policy.seed_base + p * r + rep for p in range(n) for rep in range(r)
+    assert plano["unique_id"].tolist() == [
+        policy.id_base + p * r + rep for p in range(n) for rep in range(r)
     ]
 
     for point_id in range(n):
@@ -150,9 +150,9 @@ def test_plano_expande_cada_ponto_em_r_execucoes(design):
             assert (bloco[col] == esperado).all(), (point_id, col)
 
 
-def test_plano_seed_deterministica_e_unica(plan):
-    assert plan["seed"].is_unique
-    assert plan["seed"].tolist() == list(range(1000, 1000 + len(plan)))
+def test_plano_unique_id_deterministico_e_unico(plan):
+    assert plan["unique_id"].is_unique
+    assert plan["unique_id"].tolist() == list(range(1000, 1000 + len(plan)))
 
 
 # ---------------------------------------------------------------------

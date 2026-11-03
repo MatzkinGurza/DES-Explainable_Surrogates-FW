@@ -96,7 +96,11 @@ O framework segue o fluxo metodológico da monografia, dividido em fases. O que 
 | — Orquestração | `cycle/` | 🚧 Esqueleto | Controlador dos Fluxos 1/2/3 |
 | — Rastreabilidade | `logging_/` | 🚧 Esqueleto | Logging estruturado e tracking de execuções (structlog/MLflow) |
 
-Ainda **não** existem: `main.py`/CLIs em `scripts/`, notebooks e os YAMLs de cenário preenchidos (os quatro arquivos em `configs/` estão com o esqueleto de campos, aguardando os parâmetros dos modelos ProModel).
+Também existem:
+
+- os YAMLs dos **três cenários sintéticos** preenchidos e comentados (`configs/scenario_0{1,2,3}_*.yaml`, validados por `sed_meta/config.py`); `scenario_real.yaml` continua esqueleto;
+- o CLI `scripts/generate_doe.py` (YAML → cockpit da campanha) e o notebook-irmão `notebooks/generate_doe_walkthrough.ipynb`, além do `notebooks/pipeline.ipynb`;
+- a **1ª campanha de simulação** gerada: um cockpit por cenário (300 pontos LHS × 3 réplicas = 900 execuções) em `promodel_interface/inputs_to_simulation/`, aguardando o ProModel.
 
 ---
 
@@ -153,15 +157,30 @@ Esta é a diferença arquitetural mais importante em relação ao esboço inicia
 uma linha = uma execução completa (um ponto do DoE x uma replicação)
 
 [ ------------- ENTRADA -------------- ] [ ---- SAÍDA ---- ]
-point_id | replication_id | seed | <params...> | <KPIs...>
+point_id | replication_id | unique_id | <params...> | <KPIs...>
                                                   (vazios)
 ```
 
 O ProModel é configurado **por fora** deste código para varrer a planilha sequencialmente: pega a próxima linha ainda não executada, lê os parâmetros daquela linha, roda a simulação e escreve os KPIs na **mesma linha** antes de avançar. Célula em branco é o marcador de "ainda não executado".
 
-Dois detalhes de formato que valem registro:
+Há dois formatos de arquivo:
 
-1. **Um único cabeçalho** (linha 1), sem faixa mesclada "Entrada"/"Saída" acima — uma segunda linha de cabeçalho deslocaria os dados e tornaria a leitura pelo ProModel ambígua. A distinção visual é feita apenas por cor de preenchimento e negrito nas células do cabeçalho.
+**Layout do ProModel — o que vai para a interface** (`write_promodel_cockpit` / `read_promodel_cockpit`). Segue o padrão visual dos cockpits que a Macro do ProModel lê — definido no código (`excel_bridge`, constantes `_PM_*`), sem arquivo-modelo, igual para todo cenário — e **substitui, para os arquivos entregues ao ProModel, a regra de cabeçalho único** descrita mais abaixo:
+
+```
+linha 1   (vazia)
+linha 2   [------- Entrada -------] [---- Saída ----] [------------- Identificação -------------]
+linha 3   Item    | <entradas...>     | <saídas...>     | point_id | replication_id | unique_id
+linha 4+  Teste n | valores           | (vazias)        | ids (cinza claro)
+```
+
+- Coluna A vazia; `Item` = `Teste n` na coluna B, n = 1..N = índice da execução — o ponteiro da Macro.
+- `point_id` (constante entre as réplicas do ponto), `replication_id` e `unique_id` ficam à direita das saídas, com cor própria, para não deslocar o que a Macro lê.
+- Aba oculta `_sed_meta_schema` (coluna, papel, dtype): a leitura devolve o vocabulário interno com os dtypes restaurados. Sem ela, cai num *best-effort* documentado. Lê `.xlsx` e `.xlsm`.
+
+**Formato interno** (`write_cockpit_excel` / `read_cockpit_excel`), usado pelos testes e pelo `pipeline.ipynb`:
+
+1. **Um único cabeçalho** (linha 1), sem faixa mesclada "Entrada"/"Saída" acima. A distinção visual é feita apenas por cor de preenchimento e negrito nas células do cabeçalho.
 2. **Aba oculta de esquema** (`_sed_meta_schema`) com o dtype original de cada coluna. Sem ela o round-trip pelo Excel perde tipo: `int64` volta como `float64`, `category` volta como texto solto e a ordem de uma categórica ordenada (ex.: prioridade `baixa < media < alta`) desaparece. Se a aba não existir, a leitura cai num modo *best-effort* documentado.
 
 ---
@@ -213,18 +232,20 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 📦 DES-Explainable_Surrogates-FW/
 │
 ├── 📂 Código/
-│   ├── 📂 configs/                      # Cenários (validados via pydantic)
-│   │   ├── scenario_01_serial.yaml      #   linha serial (baseline)
-│   │   ├── scenario_02_routing.yaml     #   roteamento
-│   │   ├── scenario_03_multiproduto.yaml
-│   │   └── scenario_real.yaml           #   estudo de caso real
+│   ├── 📂 configs/                      # Cenários (fonte de verdade; validados por sed_meta/config.py)
+│   │   ├── scenario_01_serial.yaml      #   linha serial P1->P2->P3 (nível 1 do ProModel)
+│   │   ├── scenario_02_routing.yaml     #   roteamento em 3 caminhos, 6 máquinas (nível 2)
+│   │   ├── scenario_03_multiproduto.yaml#   3 produtos, máquinas compartilhadas (nível 3)
+│   │   └── scenario_real.yaml           #   estudo de caso real (esqueleto)
 │   │
 │   ├── 📂 src/sed_meta/                 # Pacote principal (layout src/)
+│   │   ├── config.py                    #   schema do YAML de cenário (pydantic)
+│   │   ├── campaign.py                  #   YAML -> design -> cockpit -> conferência -> results-by-test
 │   │   ├── doe/                         # FASE 1
 │   │   │   ├── parameter_space.py       #   ParameterSpec, generate_design
 │   │   │   └── replication.py           #   ReplicationPolicy, agregação, teto de ruído
 │   │   ├── sim_interface/               # FASE 2
-│   │   │   └── excel_bridge.py          #   cockpit .xlsx <-> ProModel
+│   │   │   └── excel_bridge.py          #   cockpit .xlsx <-> ProModel (formato interno e layout do ProModel)
 │   │   ├── preprocessing/               # PONTE FASE 2 -> 3
 │   │   │   └── pipeline.py              #   PreprocessingPipeline, TargetTransformSpec
 │   │   ├── metamodels/                  # FASE 3 — quatro famílias independentes
@@ -240,10 +261,14 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 │   ├── 📂 tests/
 │   │   ├── metamodels/                  # conftest, helpers, baseline, tree_family
 │   │   ├── preprocessing/               # invariância do transformador de X, vazamento em y
-│   │   └── test_excel_bridge_e2e.py     # round-trip completo do cockpit
+│   │   ├── test_excel_bridge_e2e.py     # round-trip completo do cockpit
+│   │   ├── test_promodel_cockpit.py     # layout do ProModel, round-trip, campanha
+│   │   └── test_config.py               # schema e YAMLs dos cenários
 │   │
-│   ├── 📂 notebooks/                    # exploração (vazio por ora)
-│   ├── 📂 scripts/                      # CLIs finos com click (vazio por ora)
+│   ├── 📂 notebooks/                    # pipeline.ipynb + um notebook-irmão por script
+│   │   └── generate_doe_walkthrough.ipynb
+│   ├── 📂 scripts/                      # CLIs finos com click
+│   │   └── generate_doe.py              #   YAML -> cockpit da campanha
 │   ├── 📂 runs/                         # saída por execução — NÃO versionado
 │   ├── pytest.ini
 │   └── requirements.txt
@@ -251,6 +276,12 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 ├── 📂 Monografia/                       # LaTeX — só o PDF é versionado
 │   └── main.pdf
 │
+├── 📂 promodel_interface/            # ponto central de troca com o ProModel (não versionado)
+│   ├── inputs_to_simulation/DoE_cockpits_scenario_0N/        # SÓ os cockpits prontos para o ProModel
+│   └── outputs_of_simulation/simulation_results_scenario_0N/ # cockpits devolvidos, para o código
+├── 📂 result-notes/                 # results-by-test.xlsx: abas doe (espelho do YAML) e eval (1 linha por teste)
+├── 📂 temp/                         # descartável (ex.: conversões de .xlsm)
+├── context-for-claude.md            # contexto e decisões, lido antes de cada execução
 ├── .gitignore
 └── README.md
 ```
@@ -325,23 +356,40 @@ pip install -r Código/requirements.txt
 
 ### 4. Configure o cenário
 
-Edite o YAML do cenário desejado em `Código/configs/`. O esqueleto de campos é:
+Cada cenário é um YAML em `Código/configs/`, validado por `sed_meta/config.py` (campo desconhecido falha). Ele é a **fonte de verdade** da campanha — a aba `scenario N doe` do `result-notes/results-by-test.xlsx` é só um espelho, reescrito pelo script. Esquema (ver `scenario_01_serial.yaml`, comentado):
 
 ```yaml
-scenario:
-  name: scenario_01_serial
-  description: "Linha de produção serial (baseline)"
-
-factors: []        # fatores de entrada e seus intervalos (viram ParameterSpec)
-responses: []      # KPIs de interesse (viram as colunas de saída do cockpit)
-replications: 1    # replicações por ponto de projeto
+scenario:     {name, description, promodel_level}
+doe:          {method: lhs, criterion: ese, n_points: 300, seed: 2611101}
+replications: {n_replications: 3}
+cockpit:      {sheet_name: cockpit, item_column: Item, item_prefix: "Teste "}
+factors:      # lista ORDENADA = ordem das colunas de entrada no cockpit
+  - {name: Tempo processo 1, type: float, low: 2.0, high: 10.0, decimals: 1, unit: min, rationale: "..."}
+responses:    # lista ordenada = ordem das colunas de saída
+  - {name: Tempo_total, unit: s, description: "..."}
+target: null  # UM KPI por estudo, escolhido pelo usuário
 ```
+
+`decimals` arredonda o fator float **depois** da geração do design (`config.round_design`).
 
 ---
 
 ## Como Usar
 
-Ainda não existem os CLIs em `scripts/` — o uso atual é via API do pacote. O layout `src/` está resolvido pelo `pytest.ini` (`pythonpath = src`) para os testes; para uso interativo, rode a partir de `Código/` com `PYTHONPATH=src`.
+### Gerar o cockpit de uma campanha (CLI)
+
+```bash
+cd Código
+../venv/Scripts/python.exe scripts/generate_doe.py configs/scenario_01_serial.yaml
+```
+
+Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<DoE-ID>/` (ou em `--out-dir`) o `cockpit_scenario_0N_lhs_300x3_<DoE-ID>.xlsx` e o `doe_metadata_<DoE-ID>.json` (config, commit do git, métricas de preenchimento, conferência e tempos) e copia **só o cockpit** para `promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/` (`--no-interface` para não copiar); relê o cockpit para conferir o contrato e reescreve a aba `scenario N doe` do `results-by-test.xlsx` (`--no-update-notes` para pular). DoE-ID = `aammdd-hhmm`. O passo a passo explicado está em `notebooks/generate_doe_walkthrough.ipynb`, que grava só em `Código/runs/`.
+
+O cockpit devolvido pelo ProModel volta com `read_promodel_cockpit(path)`, cuja saída vai direto para `extract_results()` / `select_complete_runs()`.
+
+### Via API do pacote
+
+O layout `src/` está resolvido pelo `pytest.ini` (`pythonpath = src`) para os testes; para uso interativo, rode a partir de `Código/` com `PYTHONPATH=src`. O exemplo abaixo usa o formato interno do cockpit.
 
 ### Fase 1 → 2: gerar o design e emitir o cockpit
 
@@ -358,7 +406,7 @@ specs = [
 ]
 
 design = generate_design(specs, n_points=120, seed=42, method="lhs", criterion="ese")
-plan   = build_execution_plan(design, ReplicationPolicy(n_replications=5, seed_base=0))
+plan   = build_execution_plan(design, ReplicationPolicy(n_replications=5))
 
 cockpit = build_cockpit_table(plan, kpi_names=["lead_time", "wip", "utilizacao"])
 write_cockpit_excel(cockpit, "runs/exp001/cockpit.xlsx")
@@ -420,7 +468,7 @@ y_pred = pipe.inverse_transform_y(model.predict(X_test), "lead_time")
 
 **`replication.py`** — política **fixa** de replicação (todo ponto roda o mesmo número de réplicas, sem lógica adaptativa por variância). É puro e sem I/O: não roda simulação nenhuma, o que permite testar a agregação com `DataFrame` sintético.
 
-- `build_execution_plan()` expande N pontos em N × R linhas, uma por execução, com `seed` por réplica.
+- `build_execution_plan()` expande N pontos em N × R linhas, uma por execução, com `point_id`, `replication_id` e `unique_id`.
 - `aggregate_replications()` consolida em uma linha por ponto, com média, desvio, SEM e `sample_weight` (inverso da variância) por KPI — o gancho para metamodelos ponderados.
 - `compute_noise_ceiling()` devolve o R² máximo legítimo por KPI.
 
@@ -483,6 +531,8 @@ O que os testes cobrem hoje:
 - **`tests/preprocessing/test_pipeline.py`** — a propriedade central do módulo: ajustar o transformador de X em qualquer subconjunto de linhas (inclusive uma só) produz a mesma transformação; e a ausência de vazamento na transformação de y.
 - **`tests/metamodels/`** — contrato `build_*`/`GRID_*` e propagação de `sample_weight` nas famílias `baseline` e `tree_family`.
 - **`tests/test_excel_bridge_e2e.py`** — round-trip completo do cockpit, incluindo preservação de dtypes pela aba de esquema e a marcação de status por execução.
+- **`tests/test_promodel_cockpit.py`** — layout do ProModel (faixas, cabeçalho na linha 3, `Teste n`, cores), round-trip de valores e dtypes, réplicas casadas pelo `Item` mesmo com linhas reordenadas, leitura sem as abas ocultas e de `.xlsm`, compatibilidade com `extract_results`, e a campanha completa em escala pequena.
+- **`tests/test_config.py`** — schema do YAML (campo desconhecido, limites invertidos, nome reservado) e validação dos três YAMLs sintéticos.
 
 ---
 

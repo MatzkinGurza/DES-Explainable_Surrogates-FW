@@ -1,16 +1,137 @@
 # scenario_03_multiproduto.yaml
-# Cenário 3 — sistema multiproduto (múltiplas famílias de itens).
+# Cenário 3 — sistema multiproduto: 3 produtos disputando 3 máquinas
+# compartilhadas, com buffers entre elas (nível 3 do ProModel).
 #
-# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
-# respectivos intervalos para o DoE, respostas de interesse e número
-# de réplicas por ponto de projeto.
+# FONTE DE VERDADE da campanha (validado por sed_meta/config.py). A aba
+# "scenario 3 doe" de result-notes/results-by-test.xlsx é reescrita a partir
+# daqui por scripts/generate_doe.py — edite aqui, nunca lá.
+#
+# A ORDEM de `factors` e `responses` é a ordem das colunas do cockpit, a que
+# a Macro do ProModel lê por posição: não reordene sem mudar o modelo.
+#
+# Unidades: tempos de ENTRADA em minutos; tempos de SAÍDA em segundos.
+# Sufixo _k das saídas = produto k (1, 2, 3).
 
 scenario:
   name: scenario_03_multiproduto
-  description: "Sistema multiproduto"
+  description: "Multiproduto: 3 produtos em 3 máquinas compartilhadas com buffers"
+  promodel_level: 3
 
-factors: []
+doe:
+  method: lhs          # Sobol descartado: 300 não é potência de 2
+  criterion: ese
+  n_points: 300
+  seed: 2611103
 
-responses: []
+replications:
+  n_replications: 3    # 300 x 3 = 900 execuções
 
-replications: 1
+cockpit:
+  sheet_name: cockpit
+  item_column: Item
+  item_prefix: "Teste "
+
+factors:
+  - name: Capacidade M1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Quantidade chegada
+    type: integer
+    low: 1
+    high: 2
+    unit: peças/chegada
+    rationale: "peças por evento de chegada"
+  - name: Ocorrências chegada
+    type: integer
+    low: 50
+    high: 150
+    unit: chegadas
+    rationale: "número de eventos de chegada na rodada"
+  - name: Frequência chegada
+    type: float
+    low: 4.0
+    high: 16.0
+    decimals: 1
+    unit: min
+    rationale: "intervalo entre chegadas; 4–16 min (com 2–8 a maior parte dos pontos ficava com fila crescendo sem parar)"
+  - name: Tempo processo 1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Capacidade M2
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M3
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Tempo processo 2
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 3
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+
+responses:
+  - {name: Entrada_1,      unit: peças, description: "peças do produto 1 que entraram"}
+  - {name: Entrada_2,      unit: peças, description: "peças do produto 2 que entraram"}
+  - {name: Entrada_3,      unit: peças, description: "peças do produto 3 que entraram"}
+  - {name: Prontas_1,      unit: peças, description: "peças do produto 1 prontas"}
+  - {name: Prontas_2,      unit: peças, description: "peças do produto 2 prontas"}
+  - {name: Prontas_3,      unit: peças, description: "peças do produto 3 prontas"}
+  - {name: Tempo_ate_P1_1, unit: s,     description: "tempo até o processo 1, produto 1"}
+  - {name: Tempo_ate_P1_2, unit: s,     description: "tempo até o processo 1, produto 2"}
+  - {name: Tempo_ate_P1_3, unit: s,     description: "tempo até o processo 1, produto 3"}
+  - {name: Tempo_ate_P2_1, unit: s,     description: "tempo até o processo 2, produto 1"}
+  - {name: Tempo_ate_P2_2, unit: s,     description: "tempo até o processo 2, produto 2"}
+  - {name: Tempo_ate_P2_3, unit: s,     description: "tempo até o processo 2, produto 3"}
+  - {name: Tempo_ate_P3_1, unit: s,     description: "tempo até o processo 3, produto 1"}
+  - {name: Tempo_ate_P3_2, unit: s,     description: "tempo até o processo 3, produto 2"}
+  - {name: Tempo_ate_P3_3, unit: s,     description: "tempo até o processo 3, produto 3"}
+  - {name: Tempo_P1_1,     unit: s,     description: "tempo no processo 1, produto 1"}
+  - {name: Tempo_P1_2,     unit: s,     description: "tempo no processo 1, produto 2"}
+  - {name: Tempo_P1_3,     unit: s,     description: "tempo no processo 1, produto 3"}
+  - {name: Tempo_P2_1,     unit: s,     description: "tempo no processo 2, produto 1"}
+  - {name: Tempo_P2_2,     unit: s,     description: "tempo no processo 2, produto 2"}
+  - {name: Tempo_P2_3,     unit: s,     description: "tempo no processo 2, produto 3"}
+  - {name: Tempo_P3_1,     unit: s,     description: "tempo no processo 3, produto 1"}
+  - {name: Tempo_P3_2,     unit: s,     description: "tempo no processo 3, produto 2"}
+  - {name: Tempo_P3_3,     unit: s,     description: "tempo no processo 3, produto 3"}
+  - {name: Feito_P1_1,     unit: peças, description: "peças do produto 1 processadas em P1"}
+  - {name: Feito_P1_2,     unit: peças, description: "peças do produto 2 processadas em P1"}
+  - {name: Feito_P1_3,     unit: peças, description: "peças do produto 3 processadas em P1"}
+  - {name: Feito_P2_1,     unit: peças, description: "peças do produto 1 processadas em P2"}
+  - {name: Feito_P2_2,     unit: peças, description: "peças do produto 2 processadas em P2"}
+  - {name: Feito_P2_3,     unit: peças, description: "peças do produto 3 processadas em P2"}
+  - {name: Feito_P3_1,     unit: peças, description: "peças do produto 1 processadas em P3"}
+  - {name: Feito_P3_2,     unit: peças, description: "peças do produto 2 processadas em P3"}
+  - {name: Feito_P3_3,     unit: peças, description: "peças do produto 3 processadas em P3"}
+  - {name: Tempo_total_1,  unit: s,     description: "lead time do produto 1"}
+  - {name: Tempo_total_2,  unit: s,     description: "lead time do produto 2"}
+  - {name: Tempo_total_3,  unit: s,     description: "lead time do produto 3"}
+
+# UM KPI por estudo, escolhido pelo usuário (não tentar prever tudo).
+# Sugestões, sem escolher: Tempo_total_1 (lead time de um produto — a
+# disputa pelas máquinas compartilhadas aparece aqui), Prontas_1/2/3
+# (throughput por produto), Tempo_ate_P2_k (espera no buffer intermediário).
+# Note que não há Tempo_simul neste nível.
+target: null

@@ -7,7 +7,7 @@ A troca de dados com o ProModel é feita por uma planilha .xlsx
     uma linha = uma execução completa (um ponto do DoE x uma replicação)
 
     [ ---- ENTRADA (esquerda) ---- ] [ ---- SAÍDA (direita) ---- ]
-    point_id | replication_id | seed | <params...> | <KPIs...>
+    point_id | replication_id | unique_id | <params...> | <KPIs...>
                                                      (vazios)
 
 O ProModel é configurado POR FORA deste código (configuração manual,
@@ -92,9 +92,9 @@ STATUS_PENDENTE = "pendente"    # nenhum KPI preenchido (ainda não rodou)
 STATUS_INVALIDA = "invalida"    # KPI preenchido com algo que não é número
 
 # Colunas de bookkeeping criadas por replication.build_execution_plan().
-# São entrada do cockpit (o ProModel precisa da seed), mas NÃO são
+# Identificam a execução no cockpit, mas NÃO são
 # parâmetros do modelo — ver nota em extract_results().
-ID_COLS = ("point_id", "replication_id", "seed")
+ID_COLS = ("point_id", "replication_id", "unique_id")
 
 # Tons claros padrão do Excel; só para o operador bater o olho e saber
 # onde termina o que ele fornece e começa o que o ProModel preenche.
@@ -112,7 +112,7 @@ def build_cockpit_table(plan: pd.DataFrame, kpi_names: list[str]) -> pd.DataFram
     Parâmetros
     ----------
     plan : saída de replication.build_execution_plan() — N x R linhas,
-           colunas point_id, replication_id, seed + colunas de parâmetro.
+           colunas point_id, replication_id, unique_id + colunas de parâmetro.
            A granularidade "uma linha por execução" dessa função é
            exatamente a granularidade de uma linha do cockpit.
     kpi_names : nomes das colunas de saída que o ProModel vai preencher.
@@ -339,7 +339,7 @@ def _restore_sem_esquema(df: pd.DataFrame) -> pd.DataFrame:
 
     Regra única e conservadora: coluna float sem nenhum vazio e com todos
     os valores inteiros volta a int64 (é o caso de point_id, replication_id,
-    seed e parâmetros inteiros, que o Excel devolve como 0.0, 1.0, 2.0).
+    unique_id e parâmetros inteiros, que o Excel devolve como 0.0, 1.0, 2.0).
     Não há como distinguir aqui um float genuíno que por acaso caiu em
     valores inteiros — por isso o caminho com esquema é o preferido.
     """
@@ -376,14 +376,14 @@ def extract_results(cockpit_df: pd.DataFrame, kpi_names: list[str]) -> pd.DataFr
     para dar para achar a célula no .xlsx.
 
     Formato de saída (o `raw` que replication.py consome): point_id,
-    replication_id, seed, colunas de parâmetro, colunas de KPI e
+    replication_id, unique_id, colunas de parâmetro, colunas de KPI e
     status_execucao. As colunas de KPI vêm convertidas para numérico —
     valor não numérico vira NaN na coluna, mas o valor original continua
     no .xlsx e é reportado no log, e a linha fica marcada `invalida`.
 
     Cuidado ao derivar `param_cols` para aggregate_replications(): use as
     colunas do design, ou exclua explicitamente ID_COLS + kpi_names +
-    STATUS_COL. point_id/replication_id/seed são bookkeeping, não fatores
+    STATUS_COL. point_id/replication_id/unique_id são bookkeeping, não fatores
     do modelo — foram mantidos aqui porque sem eles não há como
     rastrear, no .xlsx, qual execução ficou parcial ou inválida.
 
@@ -436,7 +436,7 @@ def extract_results(cockpit_df: pd.DataFrame, kpi_names: list[str]) -> pd.DataFr
 def _id_cols_presentes(df: pd.DataFrame) -> list[str]:
     """Colunas de ID_COLS que existem no DataFrame, na ordem canônica.
 
-    point_id é obrigatório (validado antes); replication_id e seed podem
+    point_id é obrigatório (validado antes); replication_id e unique_id podem
     faltar se o `raw` veio de um DataFrame sintético de teste em vez do
     cockpit completo.
     """
@@ -532,3 +532,291 @@ def select_complete_runs(raw: pd.DataFrame) -> pd.DataFrame:
             ", ".join(f"{k}={v}" for k, v in sorted(fora.items())),
         )
     return completas.reset_index(drop=True)
+
+
+
+
+# ---------------------------------------------------------------------
+# 5. Cockpit no layout do ProModel (o que vai de fato para a interface)
+# ---------------------------------------------------------------------
+#
+# POR QUE UM SEGUNDO FORMATO
+#
+# write_cockpit_excel()/read_cockpit_excel() acima usam um cabeçalho único
+# na linha 1. Os cockpits que a Macro do ProModel lê têm outro layout, e é
+# ele que manda na interface — substitui, para os arquivos entregues ao
+# ProModel, a regra do cabeçalho único do item 1 do docstring:
+#
+#     linha 1   vazia
+#     linha 2   faixas     [---- Entrada ----] [---- Saída ----] [Identificação]
+#     linha 3   A vazia | Item | <entradas> | <saídas> | point_id | replication_id | unique_id
+#     linha 4+          | Teste n | valores | (vazias) | ids
+#
+# O padrão visual (cores, bordas, faixas) está nas constantes _PM_* abaixo:
+# nenhum arquivo-modelo é lido, e todo cenário usa o mesmo padrão.
+# `Item` = "Teste n", n = 1..N = posição da execução: é o ponteiro da Macro.
+# As colunas de identificação ficam À DIREITA das saídas, com cor própria,
+# para não deslocar o que a Macro lê (Item na coluna B, entradas a partir
+# da C, saídas logo depois).
+#
+# As funções antigas continuam intactas: os testes e o notebook do pipeline
+# dependem delas.
+
+PROMODEL_DATA_FIRST_ROW = 4     # linha 1 vazia, 2 faixas, 3 cabeçalho
+_PM_FILL_ITEM = "FF002060"      # azul-marinho do Item/"Teste n"
+_PM_FILL_ENTRADA = "FF00B050"   # faixa verde
+_PM_FILL_SAIDA = "FFFF0000"     # faixa vermelha
+_PM_FILL_VALOR = "FFFFFF00"     # células de entrada/saída, amarelas
+_PM_FILL_ID = "FFBFBFBF"        # faixa e cabeçalho de identificação, cinza
+_PM_FILL_ID_VALOR = "FFD9D9D9"  # células de identificação, cinza claro
+_PM_FAIXA_ID = "Identificação"
+
+
+def write_promodel_cockpit(
+    cockpit_df: pd.DataFrame,
+    path: str,
+    input_cols: list[str],
+    output_cols: list[str],
+    *,
+    sheet_name: str = DATA_SHEET,
+    item_column: str = "Item",
+    item_prefix: str = "Teste ",
+) -> None:
+    """Escreve o cockpit no layout do ProModel.
+
+    Parâmetros
+    ----------
+    cockpit_df : saída de build_cockpit_table() — point_id, replication_id,
+                 unique_id, parâmetros, KPIs vazios; uma linha por execução,
+                 NA ORDEM em que o ProModel deve rodar.
+    input_cols, output_cols : ordem das colunas de entrada e de saída no
+                 arquivo (a ordem que a Macro lê).
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    faltando = [c for c in (*ID_COLS, *input_cols, *output_cols) if c not in cockpit_df.columns]
+    if faltando:
+        raise ValueError(f"Colunas pedidas que não existem no DataFrame: {faltando}")
+    sobrando = [c for c in cockpit_df.columns if c not in (*ID_COLS, *input_cols, *output_cols)]
+    if sobrando:
+        raise ValueError(
+            f"Colunas do DataFrame não classificadas como entrada nem saída: {sobrando}."
+        )
+    reservados = {item_column, *ID_COLS}.intersection((*input_cols, *output_cols))
+    if reservados:
+        raise ValueError(f"Entrada/saída com nome reservado do layout: {sorted(reservados)}")
+
+    df = cockpit_df.reset_index(drop=True)
+    itens = [f"{item_prefix}{i}" for i in range(1, len(df) + 1)]
+
+    # esquema: nome no arquivo -> nome interno, papel e dtype
+    linhas_schema = [{"coluna": item_column, "interno": None, "papel": "item",
+                      "dtype": "object", "categorias_json": None, "ordenada": None}]
+    for papel, cols in (("entrada", input_cols), ("saida", output_cols), ("id", ID_COLS)):
+        for col in cols:
+            serie = df[col]
+            categorias, ordenada = None, None
+            if isinstance(serie.dtype, pd.CategoricalDtype):
+                categorias = json.dumps(serie.cat.categories.tolist())
+                ordenada = bool(serie.cat.ordered)
+            linhas_schema.append({"coluna": col, "interno": col, "papel": papel,
+                                  "dtype": str(serie.dtype), "categorias_json": categorias,
+                                  "ordenada": ordenada})
+    schema = pd.DataFrame(linhas_schema)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    fina = Side(style="thin")
+    borda = Border(left=fina, right=fina, top=fina, bottom=fina)
+    centro = Alignment(horizontal="center", vertical="center")
+    fill = {k: PatternFill("solid", fgColor=v) for k, v in {
+        "item": _PM_FILL_ITEM, "entrada": _PM_FILL_ENTRADA, "saida": _PM_FILL_SAIDA,
+        "valor": _PM_FILL_VALOR, "id": _PM_FILL_ID, "id_valor": _PM_FILL_ID_VALOR}.items()}
+    branco_negrito = Font(bold=True, color="FFFFFFFF")
+
+    # colunas: A vazia, B = Item, C.. = entradas, depois saídas, depois ids
+    col_entrada_fim = 2 + len(input_cols)       # a faixa Entrada começa no Item (B)
+    col_saida_ini, col_saida_fim = col_entrada_fim + 1, col_entrada_fim + len(output_cols)
+    col_id_ini, col_id_fim = col_saida_fim + 1, col_saida_fim + len(ID_COLS)
+
+    # linha 2 — faixas
+    for rotulo, ini, fim, f in (("Entrada", 2, col_entrada_fim, "entrada"),
+                                ("Saída", col_saida_ini, col_saida_fim, "saida"),
+                                (_PM_FAIXA_ID, col_id_ini, col_id_fim, "id")):
+        for j in range(ini, fim + 1):
+            ws.cell(row=2, column=j).fill = fill[f]
+        cel = ws.cell(row=2, column=ini, value=rotulo)
+        cel.alignment = centro
+        cel.font = Font(color="FF000000")
+        if fim > ini:
+            ws.merge_cells(start_row=2, start_column=ini, end_row=2, end_column=fim)
+
+    # linha 3 — cabeçalho
+    cabecalho = [item_column, *input_cols, *output_cols, *ID_COLS]
+    for j, nome in enumerate(cabecalho, start=2):
+        cel = ws.cell(row=3, column=j, value=nome)
+        cel.border = borda
+        if j == 2:
+            cel.fill, cel.font, cel.alignment = fill["item"], branco_negrito, centro
+        elif j >= col_id_ini:
+            cel.fill, cel.font, cel.alignment = fill["id"], Font(bold=True), centro
+        ws.column_dimensions[get_column_letter(j)].width = max(len(nome) + 2, 10)
+
+    # linha 4+ — dados (célula vazia na saída = "ainda não executado")
+    valores_entrada = [df[c].tolist() for c in input_cols]
+    valores_id = [df[c].tolist() for c in ID_COLS]
+    for i in range(len(df)):
+        r = PROMODEL_DATA_FIRST_ROW + i
+        cel = ws.cell(row=r, column=2, value=itens[i])
+        cel.fill, cel.font, cel.alignment = fill["item"], branco_negrito, centro
+        for k, coluna in enumerate(valores_entrada):
+            cel = ws.cell(row=r, column=3 + k, value=_valor_excel(coluna[i]))
+            cel.fill, cel.border = fill["valor"], borda
+        for j in range(col_saida_ini, col_saida_fim + 1):
+            cel = ws.cell(row=r, column=j)
+            cel.fill, cel.border = fill["valor"], borda
+        for k, coluna in enumerate(valores_id):
+            cel = ws.cell(row=r, column=col_id_ini + k, value=_valor_excel(coluna[i]))
+            cel.fill, cel.border, cel.alignment = fill["id_valor"], borda, centro
+
+    ws.freeze_panes = ws.cell(row=PROMODEL_DATA_FIRST_ROW, column=3)
+
+    aba = wb.create_sheet(SCHEMA_SHEET)
+    aba.append(list(schema.columns))
+    for linha in schema.itertuples(index=False):
+        aba.append([_valor_excel(v) for v in linha])
+    aba.sheet_state = "hidden"
+
+    wb.save(path)
+
+
+def _valor_excel(v):
+    """numpy -> tipo nativo (openpyxl não aceita np.int64) e NaN -> célula vazia."""
+    if v is None:
+        return None
+    if isinstance(v, (float, np.floating)) and np.isnan(v):
+        return None
+    if isinstance(v, np.generic):
+        return v.item()
+    return v
+
+
+def read_promodel_cockpit(path: str, sheet_name: str = DATA_SHEET) -> pd.DataFrame:
+    """Lê um cockpit no layout do ProModel e devolve o vocabulário interno.
+
+    Saída: point_id, replication_id, unique_id, entradas, saídas — pronta
+    para extract_results(df, output_cols) e select_complete_runs() sem
+    nenhuma adaptação. Aceita .xlsx e .xlsm (o ProModel pode exigir .xlsm;
+    openpyxl lê os dois — a macro em si é ignorada).
+
+    Com a aba oculta _sed_meta_schema, os dtypes são restaurados exatamente.
+    As colunas são achadas pelo NOME na linha 3 e os ids viajam na própria
+    linha, então reordenar linhas no Excel não troca réplicas.
+
+    Sem o esquema (cockpit montado à mão, ou salvo por ferramenta que perdeu
+    a aba oculta), cai num best-effort documentado:
+      - entradas entre Item e o início da faixa "Saída"; saídas daí até a
+        faixa "Identificação" ou a primeira coluna sem cabeçalho (o que
+        descarta lixo à direita, como as colunas BA:BC do exemplo nível 3);
+      - ids pelas colunas point_id/replication_id/unique_id, se existirem;
+        sem point_id, point_id = posição da linha; sem replication_id, ordem
+        de aparição dentro do point_id;
+      - dtypes pela regra de _restore_sem_esquema().
+
+    Linhas sem Item são formatação vazia além do fim do plano e não entram;
+    as demais entram TODAS (nada some em silêncio).
+    """
+    with pd.ExcelFile(path, engine="openpyxl") as book:
+        if sheet_name not in book.sheet_names:
+            raise ValueError(f"{path}: aba '{sheet_name}' não encontrada ({book.sheet_names}).")
+        bruto = pd.read_excel(book, sheet_name=sheet_name, header=None)
+        schema = (pd.read_excel(book, sheet_name=SCHEMA_SHEET)
+                  if SCHEMA_SHEET in book.sheet_names else None)
+
+    # header=None: coluna 0 = coluna A e linha 0 = linha 1, mesmo vazias
+    cabecalho = bruto.iloc[2].tolist() if len(bruto) > 2 else []
+    dados = bruto.iloc[PROMODEL_DATA_FIRST_ROW - 1:].reset_index(drop=True)
+
+    if schema is not None and {"papel", "interno"}.issubset(schema.columns):
+        return _ler_promodel_com_esquema(path, cabecalho, dados, schema)
+
+    logger.warning(
+        "Cockpit %s sem a aba '%s': leitura best-effort. Ver read_promodel_cockpit().",
+        path, SCHEMA_SHEET,
+    )
+    return _ler_promodel_sem_esquema(path, bruto, cabecalho, dados)
+
+
+def _ler_promodel_com_esquema(path, cabecalho, dados, schema) -> pd.DataFrame:
+    posicao = {nome: j for j, nome in enumerate(cabecalho) if isinstance(nome, str)}
+    sumidas = [c for c in schema["coluna"] if c not in posicao]
+    if sumidas:
+        raise ValueError(
+            f"{path}: colunas do cockpit gerado que não estão mais na linha 3: {sumidas}. "
+            "Foram apagadas ou renomeadas no Excel?"
+        )
+
+    item_col = schema.loc[schema["papel"] == "item", "coluna"].iloc[0]
+    dados = dados[dados[posicao[item_col]].notna()].reset_index(drop=True)
+
+    # ids primeiro, depois entradas e saídas — o vocabulário interno
+    out = pd.DataFrame(index=range(len(dados)))
+    for papel in ("id", "entrada", "saida"):
+        for _, linha in schema[schema["papel"] == papel].iterrows():
+            col = linha["interno"]
+            if isinstance(linha["categorias_json"], str):
+                alvo = pd.CategoricalDtype(json.loads(linha["categorias_json"]),
+                                           ordered=bool(linha["ordenada"]))
+            else:
+                alvo = linha["dtype"]
+            bruta = pd.Series(dados[posicao[linha["coluna"]]].to_numpy())
+            out[col] = _cast_seguro(_numerico_se_possivel(bruta), alvo, col)
+    return out
+
+
+def _ler_promodel_sem_esquema(path, bruto, cabecalho, dados) -> pd.DataFrame:
+    faixas = bruto.iloc[1].tolist() if len(bruto) > 1 else []
+    try:
+        j_item = next(j for j, v in enumerate(cabecalho) if v == "Item")
+        j_saida = next(j for j, v in enumerate(faixas)
+                       if isinstance(v, str) and v.strip() == "Saída")
+    except StopIteration:
+        raise ValueError(f"{path}: não achei 'Item' na linha 3 ou a faixa 'Saída' na linha 2.")
+
+    # as saídas acabam na faixa Identificação, num id ou na 1ª coluna sem cabeçalho
+    j_fim = j_saida
+    while (j_fim < len(cabecalho) and isinstance(cabecalho[j_fim], str)
+           and cabecalho[j_fim] not in ID_COLS
+           and not (j_fim > j_saida and faixas[j_fim] == _PM_FAIXA_ID)):
+        j_fim += 1
+
+    dados = dados[dados[j_item].notna()].reset_index(drop=True)
+    posicao = {nome: j for j, nome in enumerate(cabecalho) if isinstance(nome, str)}
+    out = pd.DataFrame(index=range(len(dados)))
+    for col in ID_COLS:
+        if col in posicao:
+            out[col] = _numerico_se_possivel(dados[posicao[col]]).to_numpy()
+    if "point_id" not in out.columns:
+        logger.warning("%s: sem coluna point_id — point_id = posição da linha.", path)
+        out.insert(0, "point_id", np.arange(len(out)))
+    for j in range(j_item + 1, j_fim):
+        out[cabecalho[j]] = _numerico_se_possivel(dados[j]).to_numpy()
+    out = _restore_sem_esquema(out)
+    if "replication_id" not in out.columns:
+        logger.warning("%s: sem coluna replication_id — ordem de aparição no point_id.", path)
+        out.insert(1, "replication_id", out.groupby("point_id").cumcount().astype("int64"))
+    return out
+
+
+def _numerico_se_possivel(serie: pd.Series) -> pd.Series:
+    """header=None faz o pandas ler cada coluna como object (o cabeçalho
+    está misturado com os números). Converte para número quando NADA se
+    perde; senão devolve como veio, para extract_results marcar `invalida`."""
+    convertida = pd.to_numeric(serie, errors="coerce")
+    if int(convertida.isna().sum()) == int(serie.isna().sum()):
+        return convertida
+    return serie
