@@ -83,7 +83,7 @@ def dataset(specs, design):
 def _simular(specs, design, seed, n_replications=5):
     """Roda o caminho real do DoE (plano de execução) e preenche os KPIs
     com uma resposta sintética, devolvendo o dataset agregado."""
-    plan = build_execution_plan(design, ReplicationPolicy(n_replications, seed_base=0))
+    plan = build_execution_plan(design, ReplicationPolicy(n_replications, id_base=0))
     rng = np.random.default_rng(seed)
 
     carga = plan["taxa_chegada"].to_numpy(dtype="float64")
@@ -607,7 +607,7 @@ def _valor_qualquer(spec, rng, n):
 def dados_por_replicacao(specs, design):
     """K linhas por ponto, mesmos parâmetros e resultados DIFERENTES — a
     granularidade em que o metamodelo deve ser treinado."""
-    plan = build_execution_plan(design, ReplicationPolicy(5, seed_base=0))
+    plan = build_execution_plan(design, ReplicationPolicy(5, id_base=0))
     rng = np.random.default_rng(SEED)
 
     carga = plan["taxa_chegada"].to_numpy(dtype="float64")

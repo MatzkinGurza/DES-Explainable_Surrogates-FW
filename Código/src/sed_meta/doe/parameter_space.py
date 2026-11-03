@@ -277,3 +277,54 @@ def _cast_dtypes(df: pd.DataFrame, specs: list[ParameterSpec]) -> pd.DataFrame:
                 df[s.name], categories=s.levels, ordered=True
             )
     return df
+
+# ---------------------------------------------------------------------
+# 6. Métricas de preenchimento do espaço (registro da qualidade do design)
+# ---------------------------------------------------------------------
+
+def fill_metrics(design: pd.DataFrame, specs: list[ParameterSpec]) -> dict[str, float]:
+    """Métricas de preenchimento e dispersão de um design numérico.
+
+    As mesmas da Seção 4.1 de notebooks/pipeline.ipynb, trazidas para o pacote
+    para que scripts/generate_doe.py as grave no doe_metadata_<id>.json. Tudo é
+    calculado no cubo [0,1]^d normalizado pelos limites DECLARADOS no spec
+    (não pelos observados — senão um design que não alcança as bordas pareceria
+    bem espalhado dentro da própria casca). Só fatores float/integer entram.
+
+    A cobertura dos vértices percorre os 2^d vértices em blocos, para caber em
+    memória com d = 15 (32768 vértices).
+    """
+    from itertools import product
+    from scipy.spatial.distance import pdist, squareform
+    from scipy.stats import qmc
+
+    numericos = [s for s in specs if s.type in ("float", "integer")]
+    U = np.column_stack([
+        (design[s.name].to_numpy(float) - s.low) / (s.high - s.low) for s in numericos
+    ])
+    d = U.shape[1]
+
+    pares = pdist(U)
+    D = squareform(pares)
+    np.fill_diagonal(D, np.inf)
+    vizinho = D.min(axis=1)
+
+    vertices = np.array(list(product([0.0, 1.0], repeat=d)))
+    dist_vertices = np.concatenate([
+        np.min(np.linalg.norm(bloco[:, None, :] - U[None, :, :], axis=2), axis=1)
+        for bloco in np.array_split(vertices, max(1, len(vertices) // 2048))
+    ])
+
+    return {
+        "dist_min_entre_pontos": float(D.min()),
+        "dist_media_ao_vizinho": float(vizinho.mean()),
+        "desvio_dist_ao_vizinho": float(vizinho.std()),
+        "dist_media_entre_pares": float(pares.mean()),
+        "cobertura_dos_vertices": float(dist_vertices.mean()),
+        "discrepancia_L2_estrela": float(qmc.discrepancy(U, method="L2-star")),
+        "disp_espacamento_marginal": float(np.mean([
+            np.std(np.diff(np.sort(U[:, j]))) for j in range(d)
+        ])),
+        "pontos_duplicados": int(design[[s.name for s in numericos]].duplicated().sum()),
+        "dimensoes": d,
+    }

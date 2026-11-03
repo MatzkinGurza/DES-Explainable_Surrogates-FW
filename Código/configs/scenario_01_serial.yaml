@@ -1,16 +1,111 @@
 # scenario_01_serial.yaml
-# Cenário 1 — linha de produção serial (baseline).
+# Cenário 1 — linha de produção serial P1 -> P2 -> P3 (nível 1 do ProModel).
 #
-# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
-# respectivos intervalos para o DoE, respostas de interesse e número
-# de réplicas por ponto de projeto.
+# FONTE DE VERDADE da campanha (validado por sed_meta/config.py). A aba
+# "scenario 1 doe" de result-notes/results-by-test.xlsx é reescrita a partir
+# daqui por scripts/generate_doe.py — edite aqui, nunca lá.
+#
+# A ORDEM de `factors` e `responses` é a ordem das colunas do cockpit, a que
+# a Macro do ProModel lê por posição: não reordene sem mudar o modelo.
+#
+# Unidades: tempos de ENTRADA em minutos; tempos de SAÍDA em segundos.
 
 scenario:
   name: scenario_01_serial
-  description: "Linha de produção serial (baseline)"
+  description: "Linha de produção serial P1 -> P2 -> P3 (baseline)"
+  promodel_level: 1
 
-factors: []
+doe:
+  method: lhs          # Sobol descartado: 300 não é potência de 2
+  criterion: ese
+  n_points: 300
+  seed: 2611101
 
-responses: []
+replications:
+  n_replications: 3    # 300 x 3 = 900 execuções
 
-replications: 1
+cockpit:
+  sheet_name: cockpit
+  item_column: Item           # 'Teste n', n = 1..900 = ponteiro da Macro do ProModel
+  item_prefix: "Teste "
+
+factors:
+  - name: Capacidade M1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Quantidade chegada
+    type: integer
+    low: 1
+    high: 2
+    unit: peças/chegada
+    rationale: "peças por evento de chegada"
+  - name: Ocorrências chegada
+    type: integer
+    low: 50
+    high: 150
+    unit: chegadas
+    rationale: "número de eventos de chegada na rodada"
+  - name: Frequência chegada
+    type: float
+    low: 4.0
+    high: 16.0
+    decimals: 1
+    unit: min
+    rationale: "intervalo entre chegadas; 4–16 min (com 2–8 a maior parte dos pontos ficava com fila crescendo sem parar)"
+  - name: Tempo processo 1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Capacidade M2
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M3
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Tempo processo 2
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 3
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+
+responses:
+  - {name: Entradas,     unit: peças, description: "peças que entraram no sistema"}
+  - {name: Prontas,      unit: peças, description: "peças que saíram prontas"}
+  - {name: Tempo_ate_P1, unit: s,     description: "tempo até a peça chegar ao processo 1"}
+  - {name: Tempo_ate_P2, unit: s,     description: "tempo até a peça chegar ao processo 2"}
+  - {name: Tempo_ate_P3, unit: s,     description: "tempo até a peça chegar ao processo 3"}
+  - {name: Tempo_P1,     unit: s,     description: "tempo no processo 1"}
+  - {name: Tempo_P2,     unit: s,     description: "tempo no processo 2"}
+  - {name: Tempo_P3,     unit: s,     description: "tempo no processo 3"}
+  - {name: Feito_P1,     unit: peças, description: "peças processadas em P1"}
+  - {name: Feito_P2,     unit: peças, description: "peças processadas em P2"}
+  - {name: Feito_P3,     unit: peças, description: "peças processadas em P3"}
+  - {name: Tempo_total,  unit: s,     description: "tempo total da peça no sistema (lead time)"}
+  - {name: Tempo_simul,  unit: s,     description: "duração simulada da rodada"}
+
+# UM KPI por estudo, escolhido pelo usuário (não tentar prever tudo).
+# Sugestões, sem escolher: Tempo_total (lead time — o mais sensível à
+# saturação), Prontas (throughput da campanha), Tempo_ate_P3 (espera
+# acumulada antes do último posto).
+target: null

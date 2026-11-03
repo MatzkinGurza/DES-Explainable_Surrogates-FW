@@ -1,16 +1,169 @@
 # scenario_02_routing.yaml
-# Cenário 2 — roteamento/desvios entre estações.
+# Cenário 2 — roteamento probabilístico em 3 caminhos, 6 máquinas
+# (nível 2 do ProModel). Cada processo k tem duas locações: Mk e Mk.1.
 #
-# Preencher com: parâmetros do modelo ProModel, fatores de entrada e
-# respectivos intervalos para o DoE, respostas de interesse e número
-# de réplicas por ponto de projeto.
+# FONTE DE VERDADE da campanha (validado por sed_meta/config.py). A aba
+# "scenario 2 doe" de result-notes/results-by-test.xlsx é reescrita a partir
+# daqui por scripts/generate_doe.py — edite aqui, nunca lá.
+#
+# A ORDEM de `factors` e `responses` é a ordem das colunas do cockpit, a que
+# a Macro do ProModel lê por posição: não reordene sem mudar o modelo.
+#
+# Unidades: tempos de ENTRADA em minutos; tempos de SAÍDA em segundos.
+# Sufixos das saídas: _1/_2/_3 em Entradas/Prontas/Tempo_total = caminho;
+# _1 em Tempo_P*/Feito_P* = locação ".1".
+# As probabilidades de roteamento não estão no cockpit (pendência (c) no context).
 
 scenario:
   name: scenario_02_routing
-  description: "Roteamento com desvios entre estações"
+  description: "Roteamento probabilístico em 3 caminhos, 2 máquinas por processo"
+  promodel_level: 2
 
-factors: []
+doe:
+  method: lhs          # Sobol descartado: 300 não é potência de 2
+  criterion: ese
+  n_points: 300
+  seed: 2611102
 
-responses: []
+replications:
+  n_replications: 3    # 300 x 3 = 900 execuções
 
-replications: 1
+cockpit:
+  sheet_name: cockpit
+  item_column: Item
+  item_prefix: "Teste "
+
+factors:
+  - name: Capacidade M1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M1.1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M2
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M2.1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M3
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Capacidade M3.1
+    type: integer
+    low: 1
+    high: 3
+    unit: peças simultâneas
+    rationale: "peças que a locação processa ao mesmo tempo; 1 = gargalo provável, 3 = folga"
+  - name: Quantidade chegada
+    type: integer
+    low: 1
+    high: 3
+    unit: peças/chegada
+    rationale: "peças por evento de chegada; até 3 porque o fluxo se divide em 3 caminhos"
+  - name: Ocorrências chegada
+    type: integer
+    low: 50
+    high: 150
+    unit: chegadas
+    rationale: "número de eventos de chegada na rodada"
+  - name: Frequência chegada
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "intervalo entre chegadas; 2–10 min, mais intenso que no cenário 1 porque o fluxo se divide em 3 caminhos"
+  - name: Tempo processo 1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 1.1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 2
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 2.1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 3
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+  - name: Tempo processo 3.1
+    type: float
+    low: 2.0
+    high: 10.0
+    decimals: 1
+    unit: min
+    rationale: "tempo de processamento por peça"
+
+responses:
+  - {name: Entradas_1,     unit: peças, description: "peças que entraram pelo caminho 1"}
+  - {name: Prontas_1,      unit: peças, description: "peças prontas pelo caminho 1"}
+  - {name: Tempo_ate_P1,   unit: s,     description: "tempo até o processo 1 (máquina M1)"}
+  - {name: Tempo_ate_P1_1, unit: s,     description: "tempo até o processo 1 (máquina M1.1)"}
+  - {name: Tempo_ate_P2,   unit: s,     description: "tempo até o processo 2 (máquina M2)"}
+  - {name: Tempo_ate_P2_1, unit: s,     description: "tempo até o processo 2 (máquina M2.1)"}
+  - {name: Tempo_ate_P3,   unit: s,     description: "tempo até o processo 3 (máquina M3)"}
+  - {name: Tempo_ate_P3_1, unit: s,     description: "tempo até o processo 3 (máquina M3.1)"}
+  - {name: Tempo_P1,       unit: s,     description: "tempo no processo 1 (M1)"}
+  - {name: Tempo_P1_1,     unit: s,     description: "tempo no processo 1 (M1.1)"}
+  - {name: Tempo_P2,       unit: s,     description: "tempo no processo 2 (M2)"}
+  - {name: Tempo_P2_1,     unit: s,     description: "tempo no processo 2 (M2.1)"}
+  - {name: Tempo_P3,       unit: s,     description: "tempo no processo 3 (M3)"}
+  - {name: Tempo_P3_1,     unit: s,     description: "tempo no processo 3 (M3.1)"}
+  - {name: Feito_P1,       unit: peças, description: "peças processadas em M1"}
+  - {name: Feito_P1_1,     unit: peças, description: "peças processadas em M1.1"}
+  - {name: Feito_P2,       unit: peças, description: "peças processadas em M2"}
+  - {name: Feito_P2_1,     unit: peças, description: "peças processadas em M2.1"}
+  - {name: Feito_P3,       unit: peças, description: "peças processadas em M3"}
+  - {name: Feito_P3_1,     unit: peças, description: "peças processadas em M3.1"}
+  - {name: Tempo_total_1,  unit: s,     description: "lead time pelo caminho 1"}
+  - {name: Tempo_total_2,  unit: s,     description: "lead time pelo caminho 2"}
+  - {name: Tempo_total_3,  unit: s,     description: "lead time pelo caminho 3"}
+  - {name: Entradas_2,     unit: peças, description: "peças que entraram pelo caminho 2"}
+  - {name: Entradas_3,     unit: peças, description: "peças que entraram pelo caminho 3"}
+  - {name: Prontas_2,      unit: peças, description: "peças prontas pelo caminho 2"}
+  - {name: Prontas_3,      unit: peças, description: "peças prontas pelo caminho 3"}
+  - {name: Tempo_simul,    unit: s,     description: "duração simulada da rodada"}
+
+# UM KPI por estudo, escolhido pelo usuário (não tentar prever tudo).
+# Sugestões, sem escolher: Tempo_total_1 (lead time de um caminho),
+# Tempo_simul (makespan da campanha — agrega os 3 caminhos), soma de
+# Prontas_1..3 (throughput total; exigiria uma coluna derivada).
+target: null
