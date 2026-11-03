@@ -72,7 +72,7 @@ escolha entre elas não é de conveniência: muda o que o metamodelo aprende.
     DoE, com os MESMOS parâmetros de entrada e K resultados DIFERENTES,
     porque o simulador é estocástico.
 
-        point_id | replication_id | seed | <params> | <KPIs>
+        point_id | replication_id | unique_id | <params> | <KPIs>
 
     O alvo é a coluna `kpi` pura.
 
@@ -111,7 +111,7 @@ peso é 1/variância na escala BRUTA e o modelo treina na transformada;
 misturar as duas desfaz o ajuste (R² de teste caindo de 0,75 para -0,71
 num cenário real do projeto, medido no docstring daquele método).
 
-Colunas que não são parâmetro declarado — point_id, replication_id, seed,
+Colunas que não são parâmetro declarado — point_id, replication_id, unique_id,
 _std, _n, _sem, _sample_weight — são ignoradas na montagem de X pelo
 remainder="drop", mas NÃO são destruídas: split() devolve DataFrames
 completos.
@@ -521,7 +521,7 @@ class PreprocessingPipeline:
 
         Devolve DataFrames COMPLETOS (não arrays), então as colunas que
         este módulo não usa continuam disponíveis para a Fase 3 —
-        point_id, replication_id e seed no caso por replicação; _std, _n,
+        point_id, replication_id e unique_id no caso por replicação; _std, _n,
         _sem e _sample_weight no caso por ponto.
         """
         if len(dataset) < 2:

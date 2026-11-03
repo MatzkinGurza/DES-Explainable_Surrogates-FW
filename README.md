@@ -90,8 +90,8 @@ O framework segue o fluxo metodológico da monografia, dividido em fases. O que 
 | 2 — Simulador | `sim_interface/excel_bridge.py` | ✅ Implementado | Cockpit `.xlsx` de ida e volta com o ProModel, com esquema de tipos e status por execução |
 | 2→3 — Ponte | `preprocessing/pipeline.py` | ✅ Implementado | Split / fit / transform de X e y com separação estrita entre transformação determinística e aprendida |
 | 3 — Metamodelos | `metamodels/` | ✅ Implementado | Quatro famílias: `baseline`, `tree_family`, `gp_family`, `neural_family` |
-| 4 — Avaliação | `evaluation/` | 🚧 Esqueleto | Métricas de erro, validação cruzada, leitura contra o teto de ruído |
-| 5 — XAI | `xai/` | 🚧 Esqueleto | SHAP, PDP/ICE, índices de Sobol, incerteza via conformal prediction |
+| 4 — Avaliação | `evaluation/` | 🧪 Implementado, testado só em dados sintéticos | R²/RMSE/MAE, CV agrupada por ponto, hold-out na escala original, curva de aprendizado, sementes, gatilhos de revisão, registro na aba eval |
+| 5 — XAI | `xai/` | 🧪 Implementado, testado só em dados sintéticos | SHAP (Tree/Kernel), PDP/ICE na escala original, índices de Sobol; incerteza via conformal ainda não |
 | 6 — Validação analítica | `theoretical/` | 📝 Previsto | Confronto das importâncias XAI com modelos analíticos |
 | — Orquestração | `cycle/` | 🚧 Esqueleto | Controlador dos Fluxos 1/2/3 |
 | — Rastreabilidade | `logging_/` | 🚧 Esqueleto | Logging estruturado e tracking de execuções (structlog/MLflow) |
@@ -100,6 +100,7 @@ Também existem:
 
 - os YAMLs dos **três cenários sintéticos** preenchidos e comentados (`configs/scenario_0{1,2,3}_*.yaml`, validados por `sed_meta/config.py`); `scenario_real.yaml` continua esqueleto;
 - o CLI `scripts/generate_doe.py` (YAML → cockpit da campanha) e o notebook-irmão `notebooks/generate_doe_walkthrough.ipynb`, além do `notebooks/pipeline.ipynb`;
+- o CLI `scripts/evaluate_kpi.py` (cockpit devolvido → metamodelos comparados, avaliados e explicados para UM KPI) e o notebook-irmão `notebooks/evaluate_kpi_walkthrough.ipynb` — testados com resultados falsos (`--fake`) até o ProModel devolver os reais;
 - a **1ª campanha de simulação** gerada: um cockpit por cenário (300 pontos LHS × 3 réplicas = 900 execuções) em `promodel_interface/inputs_to_simulation/`, aguardando o ProModel.
 
 ---
@@ -241,6 +242,8 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 │   ├── 📂 src/sed_meta/                 # Pacote principal (layout src/)
 │   │   ├── config.py                    #   schema do YAML de cenário (pydantic)
 │   │   ├── campaign.py                  #   YAML -> design -> cockpit -> conferência -> results-by-test
+│   │   ├── study.py                     #   cockpit devolvido -> comparação de famílias -> XAI -> runs/ (um KPI)
+│   │   ├── fake_results.py              #   resultados FALSOS num cockpit, só para testar o pipeline
 │   │   ├── doe/                         # FASE 1
 │   │   │   ├── parameter_space.py       #   ParameterSpec, generate_design
 │   │   │   └── replication.py           #   ReplicationPolicy, agregação, teto de ruído
@@ -253,8 +256,8 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 │   │   │   ├── tree_family.py           #   RF, ExtraTrees, GradientBoosting, XGBoost
 │   │   │   ├── gp_family.py             #   sklearn GP, smt.KRG, hetGPy
 │   │   │   └── neural_family.py         #   MLPRegressor
-│   │   ├── evaluation/                  # FASE 4 (esqueleto)
-│   │   ├── xai/                         # FASE 5 (esqueleto)
+│   │   ├── evaluation/                  # FASE 4: metrics, validation, tuning, diagnostics, record
+│   │   ├── xai/                         # FASE 5: surrogate, shap_values, pdp_ice, sobol
 │   │   ├── cycle/                       # Controlador dos Fluxos 1/2/3 (esqueleto)
 │   │   └── logging_/                    # RNF de rastreabilidade (esqueleto)
 │   │
@@ -262,13 +265,17 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 │   │   ├── metamodels/                  # conftest, helpers, baseline, tree_family
 │   │   ├── preprocessing/               # invariância do transformador de X, vazamento em y
 │   │   ├── test_excel_bridge_e2e.py     # round-trip completo do cockpit
+│   │   ├── evaluation/, xai/            # Fases 4 e 5 sobre resposta sintética conhecida (sintetico.py)
+│   │   ├── test_study.py                # estudo de um KPI de ponta a ponta, com resultados falsos
 │   │   ├── test_promodel_cockpit.py     # layout do ProModel, round-trip, campanha
 │   │   └── test_config.py               # schema e YAMLs dos cenários
 │   │
 │   ├── 📂 notebooks/                    # pipeline.ipynb + um notebook-irmão por script
-│   │   └── generate_doe_walkthrough.ipynb
+│   │   ├── generate_doe_walkthrough.ipynb
+│   │   └── evaluate_kpi_walkthrough.ipynb
 │   ├── 📂 scripts/                      # CLIs finos com click
-│   │   └── generate_doe.py              #   YAML -> cockpit da campanha
+│   │   ├── generate_doe.py              #   YAML -> cockpit da campanha
+│   │   └── evaluate_kpi.py              #   cockpit devolvido -> estudo de um KPI
 │   ├── 📂 runs/                         # saída por execução — NÃO versionado
 │   ├── pytest.ini
 │   └── requirements.txt
@@ -387,6 +394,15 @@ Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<DoE-ID>/` (o
 
 O cockpit devolvido pelo ProModel volta com `read_promodel_cockpit(path)`, cuja saída vai direto para `extract_results()` / `select_complete_runs()`.
 
+### Estudar um KPI (CLI)
+
+```bash
+cd Código
+../venv/Scripts/python.exe scripts/evaluate_kpi.py configs/scenario_01_serial.yaml --kpi Tempo_total
+```
+
+Um KPI por execução (regra do projeto). Lê o cockpit mais recente de `promodel_interface/outputs_of_simulation/simulation_results_scenario_0N/` (ou `--cockpit`), separa as execuções completas e o teto de ruído, faz o split agrupado por ponto e, para cada modelo de `--models` (padrão: dummy, poly_ridge, random_forest, xgboost, gp, mlp): busca de hiperparâmetros com CV agrupada (`--n-iter` combinações sorteadas), CV na escala original, hold-out e gatilhos de revisão. Escolhe o de maior R² de validação cruzada, mede curva de aprendizado e sementes, explica com SHAP, PDP/ICE e Sobol e grava tudo em `Código/runs/eval_scenario_0N_<KPI>_<id>/` (`resumo.json`, tabelas `.csv`, `modelo.joblib`, `preprocessing.joblib`). `--register` acrescenta a linha na aba `scenario N eval`. `--fake` avalia uma cópia do cockpit de entrada com resultados falsos, para testar o pipeline antes do ProModel. Passo a passo em `notebooks/evaluate_kpi_walkthrough.ipynb`.
+
 ### Via API do pacote
 
 O layout `src/` está resolvido pelo `pytest.ini` (`pythonpath = src`) para os testes; para uso interativo, rode a partir de `Código/` com `PYTHONPATH=src`. O exemplo abaixo usa o formato interno do cockpit.
@@ -498,7 +514,25 @@ Dois pontos que valem destaque:
 
 **Espaço transformado:** os estimadores treinam e preveem no espaço já transformado pelo `preprocessing` (X escalado para [0,1] pelos limites do `ParameterSpec`, y padronizado e possivelmente em `log1p`). Devolver previsão em minutos/peças é responsabilidade da Fase 4, que tem o objeto de preprocessing em mãos.
 
-### `evaluation/`, `xai/`, `cycle/`, `logging_/`
+### `evaluation/` — Fase 4
+
+Um metamodelo, um KPI por vez. Tudo que reparte dados reparte **pontos** (`groups` = `point_id`), nunca réplicas.
+
+- `metrics.py` — `regression_metrics()` (R², RMSE, MAE, MSE, RMSE/MAE) e `gap_to_noise_ceiling()`.
+- `validation.py` — `cross_validate_grouped()` (GroupKFold, treino e validação por fold), `holdout_evaluation()` (métricas na escala original via `inverse`), `learning_curve_grouped()` (erro e tempo de treino × volume de pontos), `seed_stability()`.
+- `diagnostics.py` — `diagnose()` aplica as tabelas de gatilhos da monografia (sobreajuste, subajuste contra o teto, erro concentrado, instabilidade entre folds/sementes, R² acima do teto). Limiares em `Limites`, a calibrar com dados reais.
+- `record.py` — `eval_record()` + `append_eval_row()`: uma linha na aba `scenario N eval` (só quando o usuário pede).
+
+### `xai/` — Fase 5
+
+- `surrogate.py` — `OriginalScaleSurrogate(model, pipe, kpi)`: parâmetros na escala do YAML → previsão na escala do KPI.
+- `shap_values.py` — `compute_shap()` (TreeSHAP para árvores, KernelSHAP para o resto), `shap_importance()`, `importance_by_parameter()` (soma o one-hot de volta por parâmetro).
+- `pdp_ice.py` — `ice_curves()`, `pdp_from_ice()`, `centered_ice()`, `ice_heterogeneity()`; grade pelos limites declarados.
+- `sobol.py` — `sobol_indices()` (SALib, S1 e ST sobre o espaço do YAML).
+
+Testes em `tests/evaluation/` e `tests/xai/` sobre uma resposta sintética conhecida (`tests/sintetico.py`): as explicações têm de recuperar a ordem de importância verdadeira.
+
+### `cycle/`, `logging_/`
 
 Esqueletos com o escopo já delimitado nas docstrings. `cycle/` é onde mora a sequência completa dos Fluxos 1/2/3 — vale notar que **não existe execução em lote do lado do Python**: quem percorre as linhas rodando a simulação é o ProModel, a partir do cockpit.
 
