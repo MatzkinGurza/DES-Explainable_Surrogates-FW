@@ -101,7 +101,7 @@ Também existem:
 - os YAMLs dos **três cenários sintéticos** preenchidos e comentados (`configs/scenario_0{1,2,3}_*.yaml`, validados por `sed_meta/config.py`); `scenario_real.yaml` continua esqueleto;
 - o CLI `scripts/generate_doe.py` (YAML → cockpit da campanha) e o notebook-irmão `notebooks/generate_doe_walkthrough.ipynb`, além do `notebooks/pipeline.ipynb`;
 - o CLI `scripts/evaluate_kpi.py` (cockpit devolvido → metamodelos comparados, avaliados e explicados para UM KPI) e o notebook-irmão `notebooks/evaluate_kpi_walkthrough.ipynb` — testados com resultados falsos (`--fake`) até o ProModel devolver os reais;
-- a **1ª campanha de simulação** gerada: um cockpit por cenário (300 pontos LHS × 3 réplicas = 900 execuções) em `promodel_interface/inputs_to_simulation/`, aguardando o ProModel.
+- a **1ª campanha de simulação** gerada: um cockpit por cenário — cenário 1 (determinístico) com 450 pontos LHS × 1 réplica = 450 execuções, cenários 2 e 3 com 300 × 3 = 900 — em `promodel_interface/inputs_to_simulation/`, aguardando o ProModel.
 
 ---
 
@@ -367,7 +367,7 @@ Cada cenário é um YAML em `Código/configs/`, validado por `sed_meta/config.py
 
 ```yaml
 scenario:     {name, description, promodel_level}
-doe:          {method: lhs, criterion: ese, n_points: 300, seed: 2611101}
+doe:          {method: lhs, criterion: ese, n_points: 450, seed: 2611101}
 replications: {n_replications: 3}
 cockpit:      {sheet_name: cockpit, item_column: Item, item_prefix: "Teste "}
 factors:      # lista ORDENADA = ordem das colunas de entrada no cockpit
@@ -390,7 +390,7 @@ cd Código
 ../venv/Scripts/python.exe scripts/generate_doe.py configs/scenario_01_serial.yaml
 ```
 
-Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<DoE-ID>/` (ou em `--out-dir`) o `cockpit_scenario_0N_lhs_300x3_<DoE-ID>.xlsx` e o `doe_metadata_<DoE-ID>.json` (config, commit do git, métricas de preenchimento, conferência e tempos) e copia **só o cockpit** para `promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/` (`--no-interface` para não copiar); relê o cockpit para conferir o contrato e reescreve a aba `scenario N doe` do `results-by-test.xlsx` (`--no-update-notes` para pular). DoE-ID = `aammdd-hhmm`. O passo a passo explicado está em `notebooks/generate_doe_walkthrough.ipynb`, que grava só em `Código/runs/`.
+Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<DoE-ID>/` (ou em `--out-dir`) o `cockpit_scenario_0N_lhs_<pontos>x<réplicas>_<DoE-ID>.xlsx` e o `doe_metadata_<DoE-ID>.json` (config, commit do git, métricas de preenchimento, conferência e tempos) e copia **só o cockpit** para `promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/` (`--no-interface` para não copiar); relê o cockpit para conferir o contrato e reescreve a aba `scenario N doe` do `results-by-test.xlsx` (`--no-update-notes` para pular). DoE-ID = `aammdd-hhmm`. O passo a passo explicado está em `notebooks/generate_doe_walkthrough.ipynb`, que grava só em `Código/runs/`.
 
 O cockpit devolvido pelo ProModel volta com `read_promodel_cockpit(path)`, cuja saída vai direto para `extract_results()` / `select_complete_runs()`.
 

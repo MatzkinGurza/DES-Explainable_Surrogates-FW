@@ -30,7 +30,9 @@ def _minimo(**extra):
 def test_yamls_sinteticos_validam(nome):
     cfg = load_scenario_config(CONFIGS / f"{nome}.yaml")
     assert cfg.doe.method == "lhs" and cfg.doe.criterion == "ese"
-    assert cfg.doe.n_points == 300 and cfg.replications.n_replications == 3
+    # cenário 1 é determinístico: 450 pontos sem réplica; os demais, 300 x 3
+    esperado = (450, 1) if nome == "scenario_01_serial" else (300, 3)
+    assert (cfg.doe.n_points, cfg.replications.n_replications) == esperado
     assert cfg.target is None                      # o KPI do estudo é escolha do usuário
     assert all(f.rationale for f in cfg.factors)   # todo limite justificado
     assert len(cfg.to_parameter_specs()) == len(cfg.factors)

@@ -16,13 +16,14 @@ scenario:
   promodel_level: 1
 
 doe:
-  method: lhs          # Sobol descartado: 300 não é potência de 2
+  method: lhs          # Sobol descartado: 450 não é potência de 2
   criterion: ese
-  n_points: 300
+  n_points: 450
   seed: 2611101
 
 replications:
-  n_replications: 3    # 300 x 3 = 900 execuções
+  n_replications: 1    # modelo determinístico (verificado pelo usuário em 05/11/2026):
+                       # réplicas sairiam idênticas; 450 x 1 = 450 execuções
 
 cockpit:
   sheet_name: cockpit
