@@ -390,7 +390,9 @@ cd Código
 ../venv/Scripts/python.exe scripts/generate_doe.py configs/scenario_01_serial.yaml
 ```
 
-Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<DoE-ID>/` (ou em `--out-dir`) o `cockpit_scenario_0N_lhs_<pontos>x<réplicas>_<DoE-ID>.xlsx` e o `doe_metadata_<DoE-ID>.json` (config, commit do git, métricas de preenchimento, conferência e tempos) e copia **só o cockpit** para `promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/` (`--no-interface` para não copiar); relê o cockpit para conferir o contrato e reescreve a aba `scenario N doe` do `results-by-test.xlsx` (`--no-update-notes` para pular). DoE-ID = `aammdd-hhmm`. O passo a passo explicado está em `notebooks/generate_doe_walkthrough.ipynb`, que grava só em `Código/runs/`.
+Um cenário por execução. Grava em `Código/runs/doe_scenario_0N_<método>_<P>x<R>_<DoE-ID>/` (ou em `--out-dir`) o `cockpit_scenario_0N_lhs_<pontos>x<réplicas>_<DoE-ID>.xlsx` e o `doe_metadata_<DoE-ID>.json` (config, commit do git, métricas de preenchimento, conferência e tempos) e copia **só o cockpit** para `promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/` (`--no-interface` para não copiar); relê o cockpit para conferir o contrato e reescreve a aba `scenario N doe` do `results-by-test.xlsx` (`--no-update-notes` para pular). DoE-ID = `aammdd-hhmm`. O passo a passo explicado está em `notebooks/generate_doe_walkthrough.ipynb`, que grava só em `Código/runs/`.
+
+Variantes da campanha sem editar o YAML: `--method {lhs,sobol,monte_carlo}`, `--n-points N` e `--n-replications R`. Limites e colunas continuam vindo do YAML; a variante fica no `doe_metadata` e a aba `scenario N doe` não é reescrita (ela espelha o YAML).
 
 O cockpit devolvido pelo ProModel volta com `read_promodel_cockpit(path)`, cuja saída vai direto para `extract_results()` / `select_complete_runs()`.
 

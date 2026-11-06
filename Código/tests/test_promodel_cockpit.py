@@ -209,7 +209,7 @@ def test_run_campaign_gera_e_confere(config, tmp_path):
     res = run_campaign(config, registro, interface_dir=interface, doe_id="261102-0000")
     nome = "cockpit_scenario_01_lhs_12x3_261102-0000.xlsx"
     assert res.cockpit_path == registro / nome
-    assert res.metadata_path == registro / "doe_metadata_261102-0000.json"
+    assert res.metadata_path == registro / "doe_metadata_scenario_01_lhs_12x3_261102-0000.json"
     # runs/ guarda cockpit + metadata; a interface recebe SÓ o cockpit
     assert sorted(p.name for p in registro.iterdir()) == sorted([nome, res.metadata_path.name])
     assert [p.name for p in interface.iterdir()] == [nome]

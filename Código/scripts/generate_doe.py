@@ -18,7 +18,12 @@ Passos:
      para a promodel_interface;
   9. reescreve a aba `scenario N doe` de result-notes/results-by-test.xlsx.
 
-Saída: Código/runs/doe_scenario_0N_<DoE-ID>/ (cockpit + metadata) e a cópia do
+Variantes da campanha (outro método, tamanho ou nº de réplicas) sem editar o
+YAML: --method, --n-points, --n-replications. Os limites e as colunas continuam
+vindo do YAML; a variante fica registrada no doe_metadata, e a aba
+`scenario N doe` NÃO é reescrita (ela espelha o YAML, não a variante).
+
+Saída: Código/runs/doe_scenario_0N_<método>_<P>x<R>_<DoE-ID>/ (cockpit + metadata) e a cópia do
 cockpit em promodel_interface/inputs_to_simulation/DoE_cockpits_scenario_0N/.
 Notebook-irmão, com o passo a passo explicado:
 notebooks/generate_doe_walkthrough.ipynb.
@@ -45,6 +50,12 @@ from sed_meta.config import load_scenario_config  # noqa: E402
 @click.argument("config_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--out-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Pasta do registro (cockpit + metadata). Padrão: runs/doe_scenario_0N_<DoE-ID>/.")
+@click.option("--method", type=click.Choice(["lhs", "sobol", "monte_carlo"]), default=None,
+              help="Variante: método de amostragem (padrão: o do YAML).")
+@click.option("--n-points", type=click.IntRange(min=1), default=None,
+              help="Variante: número de pontos do DoE (padrão: o do YAML).")
+@click.option("--n-replications", type=click.IntRange(min=1), default=None,
+              help="Variante: réplicas por ponto (padrão: o do YAML).")
 @click.option("--no-interface", is_flag=True, default=False,
               help="Não copiar o cockpit para a promodel_interface.")
 @click.option("--no-update-notes", is_flag=True, default=False,
@@ -52,13 +63,20 @@ from sed_meta.config import load_scenario_config  # noqa: E402
 @click.option("--notes-path", type=click.Path(dir_okay=False, path_type=Path),
               default=RESULTS_NOTES, show_default=True,
               help="Planilha de registro cuja aba doe é reescrita.")
-def main(config_path: Path, out_dir: Path | None, no_interface: bool, no_update_notes: bool,
-         notes_path: Path):
+def main(config_path: Path, out_dir: Path | None, method: str | None, n_points: int | None,
+         n_replications: int | None, no_interface: bool, no_update_notes: bool, notes_path: Path):
     """Gera o cockpit de DoE do cenário descrito em CONFIG_PATH."""
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
     config = load_scenario_config(config_path)
+    variante = {k: v for k, v in (("method", method), ("n_points", n_points)) if v is not None}
+    if variante:
+        config = config.model_copy(update={"doe": config.doe.model_copy(update=variante)})
+    if n_replications is not None:
+        config = config.model_copy(update={
+            "replications": config.replications.model_copy(update={"n_replications": n_replications})})
+    e_variante = bool(variante) or n_replications is not None
     click.echo(f"[1] {config.scenario.name}: {len(config.factors)} fatores, "
                f"{len(config.responses)} saídas")
 
@@ -75,8 +93,9 @@ def main(config_path: Path, out_dir: Path | None, no_interface: bool, no_update_
     click.echo(f"[8] {resultado.metadata_path}")
     click.echo(f"    cópia para o ProModel: {resultado.interface_path or '(não copiado, --no-interface)'}")
 
-    if no_update_notes:
-        click.echo("[9] results-by-test não atualizado (--no-update-notes)")
+    if no_update_notes or e_variante:
+        motivo = "variante do YAML" if e_variante else "--no-update-notes"
+        click.echo(f"[9] results-by-test não atualizado ({motivo})")
     else:
         try:
             aba = write_doe_notes_sheet(config, resultado.doe_id, resultado.cockpit_path.name,

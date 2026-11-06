@@ -18,7 +18,7 @@ campanha, a conferência do arquivo gravado, a metadata e o espelho no
 results-by-test.
 
 Onde cada arquivo fica:
-    Código/runs/doe_scenario_0N_<DoE-ID>/      cockpit + doe_metadata_<DoE-ID>.json
+    Código/runs/doe_scenario_0N_<método>_<P>x<R>_<DoE-ID>/   cockpit + doe_metadata_<...>.json
     promodel_interface/inputs_to_simulation/   SÓ a cópia do cockpit a enviar ao ProModel O script e o notebook chamam as mesmas funções — o notebook
 existe para explicar, não para fazer diferente.
 """
@@ -78,15 +78,21 @@ def interface_input_dir(config: ScenarioConfig) -> Path:
     return INTERFACE_DIR / "inputs_to_simulation" / f"DoE_cockpits_scenario_{scenario_number(config):02d}"
 
 
+def campaign_tag(config: ScenarioConfig, doe_id: str) -> str:
+    """`scenario_0N_<método>_<pontos>x<réplicas>_<DoE-ID>`: identifica a campanha
+    nos nomes de arquivo e de pasta. Método e tamanho entram porque várias
+    campanhas do mesmo cenário podem ser geradas no mesmo minuto."""
+    return (f"scenario_{scenario_number(config):02d}_{config.doe.method}_"
+            f"{config.doe.n_points}x{config.replications.n_replications}_{doe_id}")
+
+
 def run_dir(config: ScenarioConfig, doe_id: str) -> Path:
     """Subpasta de runs/ com o registro completo de uma campanha."""
-    return RUNS_DIR / f"doe_scenario_{scenario_number(config):02d}_{doe_id}"
+    return RUNS_DIR / f"doe_{campaign_tag(config, doe_id)}"
 
 
 def cockpit_filename(config: ScenarioConfig, doe_id: str) -> str:
-    n = scenario_number(config)
-    return (f"cockpit_scenario_{n:02d}_{config.doe.method}_"
-            f"{config.doe.n_points}x{config.replications.n_replications}_{doe_id}.xlsx")
+    return f"cockpit_{campaign_tag(config, doe_id)}.xlsx"
 
 
 # ---------------------------------------------------------------------
@@ -205,8 +211,8 @@ def run_campaign(config: ScenarioConfig, out_dir: Path | None = None, *,
     """Executa os passos 2–8 do script: design, arredondamento, plano, cockpit,
     conferência e metadata. Não toca no results-by-test.
 
-    O cockpit e o doe_metadata_<DoE-ID>.json vão para `out_dir` (padrão:
-    runs/doe_scenario_0N_<DoE-ID>/). Com `interface_dir`, só o cockpit é
+    O cockpit e o doe_metadata_<tag>.json vão para `out_dir` (padrão:
+    runs/doe_<tag>/, tag = campaign_tag()). Com `interface_dir`, só o cockpit é
     copiado para lá — é a pasta que o ProModel consome.
     """
     inicio = datetime.now()
@@ -216,7 +222,7 @@ def run_campaign(config: ScenarioConfig, out_dir: Path | None = None, *,
 
     nome = cockpit_filename(config, doe_id)
     cockpit_path = out_dir / nome
-    meta_path = out_dir / f"doe_metadata_{doe_id}.json"
+    meta_path = out_dir / f"doe_metadata_{campaign_tag(config, doe_id)}.json"
     interface_path = Path(interface_dir) / nome if interface_dir else None
     existentes = [p for p in (cockpit_path, meta_path, interface_path) if p and p.exists()]
     if existentes:
