@@ -192,7 +192,8 @@ def build_mlp(
 GRID_MLP: dict[str, list] = {
     "hidden_layer_sizes": [(32,), (64,), (32, 32), (64, 64), (128, 64)],
     # 3e-1 entra para a grade CERCAR o ótimo medido (~0.3) em vez de deixá-lo
-    # num vão entre 1e-1 e 1.0 — ver a tabela no docstring de build_mlp
-    "alpha": [1e-4, 1e-3, 1e-2, 1e-1, 3e-1, 1.0],
+    # num vão entre 1e-1 e 1.0 — ver a tabela no docstring de build_mlp.
+    # 3.0 e 10.0: no cenário 1 o alpha escolhido bateu no teto antigo (1.0)
+    "alpha": [1e-4, 1e-3, 1e-2, 1e-1, 3e-1, 1.0, 3.0, 10.0],
     "activation": ["relu", "tanh"],
 }

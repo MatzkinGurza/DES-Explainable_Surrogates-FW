@@ -149,6 +149,9 @@ def prepare(completas: pd.DataFrame, config: ScenarioConfig, kpi: str, *,
     preprocessing ajustado só no treino. Treina sobre as réplicas."""
     pipe = PreprocessingPipeline(config.to_parameter_specs(), [TargetTransformSpec(kpi, target_method)])
     train_df, test_df = pipe.split(completas, test_size=test_size, seed=seed)
+    comuns = set(train_df["point_id"]) & set(test_df["point_id"])
+    if comuns:  # réplicas do mesmo ponto nos dois lados = vazamento
+        raise RuntimeError(f"split vazou {len(comuns)} point_id(s) entre treino e teste")
     pipe.fit(train_df)
     return Preparo(kpi, pipe, train_df, test_df,
                    pipe.transform_X(train_df), pipe.transform_y(train_df, kpi),
@@ -424,7 +427,10 @@ def eval_records_all(r: StudyResult, config: ScenarioConfig, textos: dict) -> li
         det = r.comparacao["detalhes"][nome]
         t = textos.get(nome, {"shap": "—", "pdp": "—", "ice": "—"})
         gatilhos = tabela.loc[nome, "gatilhos"] or "nenhum"
+        teto = r.leitura["noise_ceiling"]
         partes = [f"gatilhos: {gatilhos}",
+                  (f"teto de ruído {teto:.3f} (teste = {tabela.loc[nome, 'fracao_do_teto']:.0%} do teto)"
+                   if teto == teto else ""),
                   f"teste R² {det['holdout']['teste']['r2']:.4f} vs CV {tabela.loc[nome, 'cv_validacao_r2']:.4f}",
                   f"estudo {r.out_dir.name}"]
         comentario = "; ".join(p for p in partes if p)

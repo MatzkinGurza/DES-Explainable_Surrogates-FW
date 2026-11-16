@@ -246,7 +246,8 @@ def build_polynomial_ridge(degree: int = 2, alpha: float = 1.0) -> Pipeline:
 
 #: Grade cruzada: o grau certo depende de quanta regularização há, e
 #: vice-versa — buscar os dois eixos juntos é o ponto da variante.
+#: Grau 4: no cenário 1 o grau escolhido foi sempre o teto antigo (3).
 GRID_POLYNOMIAL_RIDGE: dict[str, list] = {
-    "poly__degree": [1, 2, 3],
+    "poly__degree": [1, 2, 3, 4],
     "reg__alpha": np.logspace(-4, 3, 15).tolist(),
 }

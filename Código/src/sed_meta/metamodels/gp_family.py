@@ -222,7 +222,10 @@ GRID_SKLEARN_GP: dict[str, list] = {
         for nu in (1.5, 2.5)
         for nl in (1e-3, 1e-2, 1e-1)
     ],
-    "n_restarts_optimizer": [5, 10],
+    # 0 ou 2: o chute inicial de noise_level acima já faz o papel de
+    # multi-start; no cenário 2 (960 linhas), 5 reinícios custavam 50 s por
+    # ajuste e chegavam ao mesmo kernel que 0 reinícios (4 s)
+    "n_restarts_optimizer": [0, 2],
 }
 
 
