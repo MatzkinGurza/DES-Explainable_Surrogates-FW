@@ -11,7 +11,7 @@ notebooks/evaluate_kpi_walkthrough.ipynb as executam:
                         CV agrupada na escala original, hold-out, gatilhos
     select_best()       o de maior R² de VALIDAÇÃO cruzada (nunca pelo teste)
     deepen()            curva de aprendizado e estabilidade entre sementes do escolhido
-    explain()           SHAP, PDP/ICE e Sobol do escolhido
+    explain()           SHAP e PDP/ICE do escolhido
     write_study()       tudo em Código/runs/eval_scenario_0N_<KPI>_<id>/
     eval_record_for()   a linha da aba eval (gravada só com --register)
 
@@ -58,7 +58,6 @@ from sed_meta.sim_interface.excel_bridge import (
 )
 from sed_meta.xai.pdp_ice import ice_curves, ice_heterogeneity, pdp_from_ice
 from sed_meta.xai.shap_values import compute_shap, importance_by_parameter
-from sed_meta.xai.sobol import sobol_indices
 from sed_meta.xai.surrogate import OriginalScaleSurrogate
 
 # Cardápio do script: nome na linha de comando -> (família, builder, grade).
@@ -68,6 +67,9 @@ MODELOS = {
     "dummy":        ("baseline", baseline.build_dummy_mean, baseline.GRID_DUMMY_MEAN),
     "poly_ridge":   ("baseline", baseline.build_polynomial_ridge, baseline.GRID_POLYNOMIAL_RIDGE),
     "random_forest": ("árvores", tree_family.build_random_forest, tree_family.GRID_RANDOM_FOREST),
+    "extra_trees":  ("árvores", tree_family.build_extra_trees, tree_family.GRID_EXTRA_TREES),
+    "gradient_boosting": ("árvores", tree_family.build_gradient_boosting,
+                          tree_family.GRID_GRADIENT_BOOSTING),
     "xgboost":      ("árvores", tree_family.build_xgboost, tree_family.GRID_XGBOOST),
     "gp":           ("processo gaussiano", gp_family.build_sklearn_gp, gp_family.GRID_SKLEARN_GP),
     "mlp":          ("rede neural", neural_family.build_mlp, neural_family.GRID_MLP),
@@ -159,7 +161,8 @@ def prepare(completas: pd.DataFrame, config: ScenarioConfig, kpi: str, *,
 # ---------------------------------------------------------------------
 
 def compare_models(prep: Preparo, modelos=MODELOS_PADRAO, *, noise_ceiling: float = float("nan"),
-                   n_splits: int = 5, n_iter: int | None = 20, seed: int = 0) -> dict:
+                   n_splits: int = 5, n_iter: int | None = 20, seed: int = 0,
+                   n_jobs: int | None = None) -> dict:
     """Para cada modelo: tuning agrupado -> CV agrupada na escala original ->
     hold-out -> gatilhos. Devolve a tabela comparativa e os detalhes por modelo.
 
@@ -170,7 +173,7 @@ def compare_models(prep: Preparo, modelos=MODELOS_PADRAO, *, noise_ceiling: floa
     for nome in modelos:
         familia, build, grade = MODELOS[nome]
         tun = tune_grouped(build(), grade, prep.X_train, prep.y_train, prep.groups_train,
-                           n_splits=n_splits, n_iter=n_iter, seed=seed)
+                           n_splits=n_splits, n_iter=n_iter, seed=seed, n_jobs=n_jobs)
         melhor = clone(tun["estimador"])
         cv = cross_validate_grouped(melhor, prep.X_train, prep.y_train, prep.groups_train,
                                     n_splits=n_splits, inverse=prep.inverse)
@@ -229,9 +232,10 @@ def deepen(prep: Preparo, estimador, *, seed: int = 0, seeds=(0, 1, 2, 3, 4)) ->
 # ---------------------------------------------------------------------
 
 def explain(prep: Preparo, modelo_ajustado, config: ScenarioConfig, *, seed: int = 0,
-            max_pontos_shap: int = 100, n_grid: int = 15, sobol_n: int = 1024) -> dict:
-    """SHAP (nos pontos de teste), PDP/ICE (sobre os pontos de treino) e Sobol
-    (sobre o espaço do YAML) do metamodelo escolhido."""
+            max_pontos_shap: int = 100, n_grid: int = 15,
+            n_background: int = 50, nsamples: int | str = "auto") -> dict:
+    """SHAP (nos pontos de teste) e PDP/ICE (sobre os pontos de treino) do
+    metamodelo escolhido — as três técnicas de XAI da monografia."""
     specs = config.to_parameter_specs()
     nomes = prep.pipe.get_feature_names()
 
@@ -239,7 +243,8 @@ def explain(prep: Preparo, modelo_ajustado, config: ScenarioConfig, *, seed: int
     if len(pontos_teste) > max_pontos_shap:
         pontos_teste = pontos_teste.sample(max_pontos_shap, random_state=seed)
     shap_res = compute_shap(modelo_ajustado, prep.pipe.transform_X(pontos_teste), nomes,
-                            X_background=prep.X_train, seed=seed)
+                            X_background=prep.X_train, seed=seed, n_background=n_background,
+                            nsamples=nsamples)
     importancia = importance_by_parameter(shap_res, specs)
 
     surrogate = OriginalScaleSurrogate(modelo_ajustado, prep.pipe, prep.kpi)
@@ -255,7 +260,6 @@ def explain(prep: Preparo, modelo_ajustado, config: ScenarioConfig, *, seed: int
         "shap_importancia": importancia,
         "pdp": pdp,
         "ice_heterogeneidade": pd.Series(heterogeneidade, name="ice_heterogeneidade"),
-        "sobol": sobol_indices(surrogate, specs, n_base=sobol_n, seed=seed),
     }
 
 
@@ -297,8 +301,9 @@ class StudyResult:
 
 def run_study(config: ScenarioConfig, kpi: str, cockpit_path: Path, *, out_dir: Path | None = None,
               modelos=MODELOS_PADRAO, target_method: str = "standard", test_size: float = 0.2,
-              n_splits: int = 5, n_iter: int | None = 20, seed: int = 0, sobol_n: int = 1024,
-              config_path: Path | None = None, study_id: str | None = None) -> StudyResult:
+              n_splits: int = 5, n_iter: int | None = 20, seed: int = 0,
+              config_path: Path | None = None, study_id: str | None = None,
+              n_jobs: int | None = None, aprofundar: bool = True) -> StudyResult:
     """Executa os passos 1–6 e grava em `out_dir` (padrão: study_dir())."""
     inicio = datetime.now()
     study_id = study_id or inicio.strftime("%y%m%d-%H%M")
@@ -310,16 +315,17 @@ def run_study(config: ScenarioConfig, kpi: str, cockpit_path: Path, *, out_dir: 
     prep = prepare(leitura["completas"], config, kpi, target_method=target_method,
                    test_size=test_size, seed=seed)
     comparacao = compare_models(prep, modelos, noise_ceiling=leitura["noise_ceiling"],
-                                n_splits=n_splits, n_iter=n_iter, seed=seed)
+                                n_splits=n_splits, n_iter=n_iter, seed=seed, n_jobs=n_jobs)
     melhor = select_best(comparacao["tabela"])
     det = comparacao["detalhes"][melhor]
-    aprofundamento = deepen(prep, det["tuning"]["estimador"], seed=seed)
-    xai = explain(prep, det["holdout"]["modelo"], config, seed=seed, sobol_n=sobol_n)
+    aprofundamento = (deepen(prep, det["tuning"]["estimador"], seed=seed) if aprofundar
+                      else {"curva_aprendizado": None, "sementes": None})
+    xai = explain(prep, det["holdout"]["modelo"], config, seed=seed)
 
     resultado = StudyResult(study_id, kpi, Path(cockpit_path), out_dir, leitura, prep,
                             comparacao, melhor, aprofundamento, xai)
     opcoes = {"modelos": list(modelos), "target_method": target_method, "test_size": test_size,
-              "n_splits": n_splits, "n_iter": n_iter, "seed": seed, "sobol_n": sobol_n}
+              "n_splits": n_splits, "n_iter": n_iter, "seed": seed}
     resultado.resumo = summarize_study(resultado, config, opcoes, config_path=config_path, inicio=inicio)
     write_study(resultado)
     return resultado
@@ -362,16 +368,78 @@ def write_study(r: StudyResult) -> None:
     r.comparacao["tabela"].to_csv(r.out_dir / "comparacao_modelos.csv", index=False)
     pd.concat([d["cv"].assign(modelo=m) for m, d in r.comparacao["detalhes"].items()]) \
         .to_csv(r.out_dir / "cv_por_fold.csv", index=False)
-    r.aprofundamento["curva_aprendizado"].to_csv(r.out_dir / "curva_aprendizado.csv", index=False)
+    if r.aprofundamento["curva_aprendizado"] is not None:
+        r.aprofundamento["curva_aprendizado"].to_csv(r.out_dir / "curva_aprendizado.csv", index=False)
     if r.aprofundamento["sementes"] is not None:
         r.aprofundamento["sementes"].to_csv(r.out_dir / "sementes.csv", index=False)
     r.xai["shap_importancia"].to_csv(r.out_dir / "shap_importancia.csv", index=False)
     r.xai["shap"].values.to_csv(r.out_dir / "shap_valores.csv", index=False)
     r.xai["pdp"].to_csv(r.out_dir / "pdp.csv", index=False)
     r.xai["ice_heterogeneidade"].to_csv(r.out_dir / "ice_heterogeneidade.csv")
-    r.xai["sobol"].to_csv(r.out_dir / "sobol.csv", index=False)
     joblib.dump(r.comparacao["detalhes"][r.melhor]["holdout"]["modelo"], r.out_dir / "modelo.joblib")
     r.prep.pipe.save(str(r.out_dir / "preprocessing.joblib"))
+
+
+def explain_all(r: StudyResult, config: ScenarioConfig, *, seed: int = 0) -> dict:
+    """XAI de TODOS os modelos comparados (não só do escolhido), numa versão
+    mais leve — SHAP em até 50 pontos com fundo de 20 centróides, grade de 10
+    valores no PDP/ICE —, para preencher as colunas SHAP/PDP/ICE de cada linha
+    da aba eval. O dummy fica de fora: é constante, não tem o que explicar.
+    Grava as tabelas em <estudo>/xai_<modelo>/."""
+    textos = {}
+    for nome, det in r.comparacao["detalhes"].items():
+        if nome == "dummy":
+            continue
+        if nome == r.melhor:
+            xai = r.xai
+        else:
+            xai = explain(r.prep, det["holdout"]["modelo"], config, seed=seed, max_pontos_shap=50,
+                          n_grid=10, n_background=20, nsamples=200)
+        pasta = r.out_dir / f"xai_{nome}"
+        pasta.mkdir(parents=True, exist_ok=True)
+        xai["shap_importancia"].to_csv(pasta / "shap_importancia.csv", index=False)
+        xai["pdp"].to_csv(pasta / "pdp.csv", index=False)
+        xai["ice_heterogeneidade"].to_csv(pasta / "ice_heterogeneidade.csv")
+        textos[nome] = xai_texts(xai)
+    return textos
+
+
+def doe_info(r: StudyResult) -> dict:
+    """Tamanho e método do DoE a partir dos DADOS lidos (pontos e réplicas
+    completos) e do nome do cockpit — não do YAML, que pode ter sido variado."""
+    completas = r.leitura["completas"]
+    pontos = int(completas["point_id"].nunique())
+    m = re.search(r"cockpit_scenario_\d+_(lhs|sobol|monte_carlo)_", r.cockpit_path.name)
+    return {"pontos": pontos, "replicas": int(round(len(completas) / pontos)),
+            "metodo": m.group(1) if m else None}
+
+
+def eval_records_all(r: StudyResult, config: ScenarioConfig, textos: dict) -> list[dict]:
+    """Uma linha da aba eval por modelo comparado, na ordem do R² de CV."""
+    doe = doe_info(r)
+    opcoes = r.resumo["opcoes"]
+    tabela = r.comparacao["tabela"].set_index("modelo")
+    registros = []
+    for nome in tabela.sort_values("cv_validacao_r2", ascending=False).index:
+        det = r.comparacao["detalhes"][nome]
+        t = textos.get(nome, {"shap": "—", "pdp": "—", "ice": "—"})
+        gatilhos = tabela.loc[nome, "gatilhos"] or "nenhum"
+        partes = [f"gatilhos: {gatilhos}",
+                  f"teste R² {det['holdout']['teste']['r2']:.4f} vs CV {tabela.loc[nome, 'cv_validacao_r2']:.4f}",
+                  f"estudo {r.out_dir.name}"]
+        comentario = "; ".join(p for p in partes if p)
+        registros.append(eval_record(
+            kpi=r.kpi, surrogate_model=nome, model_params=det["tuning"]["params"],
+            doe_size=doe["pontos"], n_replications=doe["replicas"],
+            teste=det["holdout"]["teste"], training_time_s=det["holdout"]["fit_time_s"],
+            k_fold=opcoes.get("n_splits"), test_size=opcoes.get("test_size"),
+            shap=t["shap"], pdp=t["pdp"], ice=t["ice"], comments=comentario, test_id=r.study_id,
+            extras={"doe_method": doe["metodo"], "target_method": opcoes.get("target_method"),
+                    "cv_r2": round(float(tabela.loc[nome, "cv_validacao_r2"]), 4),
+                    "best": "sim" if nome == r.melhor else "não",
+                    "cockpit": r.cockpit_path.name},
+        ))
+    return registros
 
 
 def eval_record_for(r: StudyResult, config: ScenarioConfig, comments: str = "") -> dict:
@@ -380,7 +448,7 @@ def eval_record_for(r: StudyResult, config: ScenarioConfig, comments: str = "") 
     textos = r.resumo["xai_textos"]
     return eval_record(
         kpi=r.kpi, surrogate_model=r.melhor, model_params=det["tuning"]["params"],
-        doe_size=config.doe.n_points, n_replications=config.replications.n_replications,
+        doe_size=doe_info(r)["pontos"], n_replications=doe_info(r)["replicas"],
         teste=det["holdout"]["teste"], training_time_s=det["holdout"]["fit_time_s"],
         k_fold=r.resumo["opcoes"].get("n_splits"), test_size=r.resumo["opcoes"].get("test_size"),
         shap=textos["shap"], pdp=textos["pdp"], ice=textos["ice"],

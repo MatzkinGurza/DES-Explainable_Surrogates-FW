@@ -66,7 +66,7 @@ def test_run_study_ponta_a_ponta(config, cockpit_falso, tmp_path):
     destino, _, _ = cockpit_falso
     r = run_study(config, "Tempo_total", destino, out_dir=tmp_path / "estudo",
                   modelos=("dummy", "poly_ridge", "random_forest"), n_splits=3, n_iter=2,
-                  sobol_n=64, study_id="261103-0001")
+                  study_id="261103-0001")
     tabela = r.comparacao["tabela"]
     assert list(tabela["modelo"]) == ["dummy", "poly_ridge", "random_forest"]
     assert r.melhor == select_best(tabela) != "dummy"
@@ -75,7 +75,7 @@ def test_run_study_ponta_a_ponta(config, cockpit_falso, tmp_path):
 
     arquivos = {p.name for p in r.out_dir.iterdir()}
     assert {"resumo.json", "comparacao_modelos.csv", "cv_por_fold.csv", "curva_aprendizado.csv",
-            "shap_importancia.csv", "pdp.csv", "sobol.csv", "modelo.joblib",
+            "shap_importancia.csv", "pdp.csv", "modelo.joblib",
             "preprocessing.joblib"} <= arquivos
     resumo = json.loads((r.out_dir / "resumo.json").read_text(encoding="utf-8"))
     assert resumo["kpi"] == "Tempo_total" and resumo["melhor_modelo"] == r.melhor

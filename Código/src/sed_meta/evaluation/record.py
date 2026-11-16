@@ -9,9 +9,11 @@ usuário pede (regra do context-for-claude.md: não tocar nas abas eval sem
 pedido).
 
 As colunas são achadas pelo COMEÇO do texto do cabeçalho, para tolerar
-pequenas variações (ex.: "Model Parametrs (*)"). Cabeçalhos que a aba ainda
-não tem — KPI e MAE — vão como prefixo do comentário até a aba ganhar a
-coluna; se a coluna existir ("KPI", "MAE"), é preenchida direto.
+pequenas variações (ex.: "Model Parametrs (*)"). O KPI previsto vai em
+"Target variable". Campos sem coluna na aba vão como prefixo do comentário;
+ensure_extra_columns() acrescenta à direita de "comments" as colunas extras
+(MAE, método do DoE, transformação do alvo, R² de CV, escolhido, cockpit).
+"Accuracy" fica em branco: é métrica de classificação, não se aplica.
 """
 
 from datetime import datetime, time, timedelta
@@ -35,9 +37,16 @@ CABECALHOS = {
     "pdp": "PDP",
     "ice": "ICE",
     "comments": "comments",
-    "kpi": "KPI",
+    "kpi": "Target variable",
     "mae": "MAE",
+    "doe_method": "DoE method",
+    "target_method": "Target transform",
+    "cv_r2": "CV R^2",
+    "best": "Best in study",
+    "cockpit": "Cockpit file",
 }
+# colunas acrescentadas DEPOIS de "comments" (a estrutura original fica intacta)
+CABECALHOS_EXTRAS = ["mae", "doe_method", "target_method", "cv_r2", "best", "cockpit"]
 LINHA_CABECALHO = 3
 LINHA_EXEMPLO = 4
 
@@ -68,6 +77,7 @@ def eval_record(
     ice: str = "",
     comments: str = "",
     test_id: str | None = None,
+    extras: dict | None = None,
 ) -> dict:
     """Monta o registro de UM teste (um KPI, um metamodelo).
 
@@ -95,6 +105,7 @@ def eval_record(
         "pdp": pdp,
         "ice": ice,
         "comments": comments,
+        **(extras or {}),
     }
 
 
@@ -124,7 +135,7 @@ def append_eval_row(xlsx_path: str | Path, scenario_n: int, record: dict) -> int
         raise ValueError(f"Aba '{nome}' sem os cabeçalhos esperados para {faltam} na linha 3.")
 
     registro = dict(record)
-    sem_coluna = [f"{k.upper()}: {registro.pop(k)}" for k in ("kpi", "mae")
+    sem_coluna = [f"{k.upper()}: {registro.pop(k)}" for k in ("kpi", *CABECALHOS_EXTRAS)
                   if k in registro and k not in colunas]
     if sem_coluna:
         registro["comments"] = " | ".join([*sem_coluna, registro.get("comments") or ""]).rstrip(" |")
@@ -141,3 +152,33 @@ def append_eval_row(xlsx_path: str | Path, scenario_n: int, record: dict) -> int
 
     wb.save(xlsx_path)
     return linha
+
+
+def ensure_extra_columns(xlsx_path: str | Path, scenario_n: int) -> list[str]:
+    """Acrescenta à direita de "comments", na linha 3 da aba eval, os
+    cabeçalhos de CABECALHOS_EXTRAS que ainda não existem (KPI, MAE, método
+    do DoE, transformação do alvo, R² de CV, escolhido no estudo, arquivo do
+    cockpit). Copia o estilo do último cabeçalho. Devolve os acrescentados."""
+    from copy import copy
+
+    from openpyxl import load_workbook
+
+    xlsx_path = Path(xlsx_path)
+    wb = load_workbook(xlsx_path)
+    ws = wb[f"scenario {scenario_n} eval"]
+    existentes = [c for c in ws[LINHA_CABECALHO] if isinstance(c.value, str)]
+    ultimo = existentes[-1]
+    tem = {k for k in CABECALHOS_EXTRAS
+           if any(c.value.strip().startswith(CABECALHOS[k]) for c in existentes)}
+    novos, j = [], ultimo.column
+    for k in CABECALHOS_EXTRAS:
+        if k in tem:
+            continue
+        j += 1
+        cel = ws.cell(LINHA_CABECALHO, j, value=CABECALHOS[k])
+        cel.font, cel.fill = copy(ultimo.font), copy(ultimo.fill)
+        cel.border, cel.alignment = copy(ultimo.border), copy(ultimo.alignment)
+        novos.append(CABECALHOS[k])
+    if novos:
+        wb.save(xlsx_path)
+    return novos

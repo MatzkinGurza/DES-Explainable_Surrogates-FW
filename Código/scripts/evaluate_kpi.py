@@ -14,9 +14,12 @@ Passos:
      original, hold-out e gatilhos de revisão;
   5. escolhe o modelo de maior R² de validação cruzada;
   6. curva de aprendizado e estabilidade entre sementes do escolhido;
-  7. SHAP, PDP/ICE e Sobol do escolhido;
+  7. SHAP e PDP/ICE do escolhido;
   8. grava tudo em Código/runs/eval_scenario_0N_<KPI>_<id>/;
-  9. com --register, acrescenta a linha na aba `scenario N eval` do results-by-test.
+  9. com --register, acrescenta a linha do escolhido na aba `scenario N eval` do
+     results-by-test; com --register-all, uma linha por modelo comparado (cada um
+     com sua própria XAI, numa versão mais leve), e as colunas extras (KPI, MAE,
+     método do DoE, transformação, R² de CV, escolhido, cockpit) à direita.
 
 --fake: antes de começar, preenche uma CÓPIA do cockpit de ENTRADA (o da
 promodel_interface/inputs_to_simulation/) com resultados falsos, gravada na
@@ -62,20 +65,25 @@ from sed_meta.study import (  # noqa: E402
 @click.option("--n-splits", default=5, show_default=True, help="Folds da CV agrupada.")
 @click.option("--n-iter", default=20, show_default=True,
               help="Combinações sorteadas por família na busca (0 = grade completa).")
-@click.option("--sobol-n", default=1024, show_default=True, help="N da amostra de Sobol (potência de 2).")
 @click.option("--seed", default=0, show_default=True)
+@click.option("--n-jobs", default=-1, show_default=True,
+              help="Processos na busca de hiperparâmetros (-1 = todos os núcleos).")
+@click.option("--no-deepen", is_flag=True, default=False,
+              help="Pular curva de aprendizado e estabilidade entre sementes (lotes longos).")
 @click.option("--out-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
               help="Pasta do estudo. Padrão: runs/eval_scenario_0N_<KPI>_<id>/.")
 @click.option("--fake", is_flag=True, default=False,
               help="Avaliar sobre uma cópia do cockpit de entrada com resultados falsos.")
 @click.option("--register", is_flag=True, default=False,
-              help="Acrescentar a linha na aba 'scenario N eval' do results-by-test.xlsx.")
+              help="Acrescentar a linha do escolhido na aba 'scenario N eval' do results-by-test.xlsx.")
+@click.option("--register-all", is_flag=True, default=False,
+              help="Acrescentar uma linha POR MODELO comparado (com XAI de cada um).")
 def main(config_path, kpi, cockpit, models, target_method, test_size, n_splits, n_iter,
-         sobol_n, seed, out_dir, fake, register):
+         seed, n_jobs, no_deepen, out_dir, fake, register, register_all):
     """Estudo de um KPI do cenário descrito em CONFIG_PATH."""
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    if fake and register:
+    if fake and (register or register_all):
         raise click.UsageError("--fake gera resultados falsos: não registre isso na aba eval.")
 
     config = load_scenario_config(config_path)
@@ -103,8 +111,9 @@ def main(config_path, kpi, cockpit, models, target_method, test_size, n_splits, 
 
     resultado = run_study(config, kpi, cockpit, out_dir=out_dir, modelos=modelos,
                           target_method=target_method, test_size=test_size, n_splits=n_splits,
-                          n_iter=n_iter or None, seed=seed, sobol_n=sobol_n,
-                          config_path=config_path.resolve(), study_id=study_id)
+                          n_iter=n_iter or None, seed=seed,
+                          config_path=config_path.resolve(), study_id=study_id,
+                          n_jobs=n_jobs, aprofundar=not no_deepen)
     r = resultado.resumo
     click.echo(f"[2] {kpi}: {r['pontos_completos']} pontos completos, status {r['status_execucoes']}, "
                f"teto de ruído {r['noise_ceiling']:.3f}")
@@ -120,16 +129,25 @@ def main(config_path, kpi, cockpit, models, target_method, test_size, n_splits, 
         click.echo(f"[7] {chave.upper()}: {texto}")
     click.echo(f"[8] estudo gravado em {resultado.out_dir}")
 
-    if register:
-        from sed_meta.study import eval_record_for
-        try:
-            linha = append_eval_row(RESULTS_NOTES, scenario_number(config), eval_record_for(resultado, config))
-        except PermissionError:
-            raise click.ClickException(f"Não consegui salvar {RESULTS_NOTES} — está aberto no Excel? "
-                                       "O estudo já foi gravado; feche o arquivo e registre de novo.")
-        click.echo(f"[9] {RESULTS_NOTES.name}: linha {linha} da aba 'scenario {scenario_number(config)} eval'")
-    else:
-        click.echo("[9] aba eval não atualizada (use --register)")
+    n = scenario_number(config)
+    try:
+        if register_all:
+            from sed_meta.evaluation.record import ensure_extra_columns
+            from sed_meta.study import eval_records_all, explain_all
+            textos = explain_all(resultado, config, seed=seed)
+            ensure_extra_columns(RESULTS_NOTES, n)
+            linhas = [append_eval_row(RESULTS_NOTES, n, reg)
+                      for reg in eval_records_all(resultado, config, textos)]
+            click.echo(f"[9] {RESULTS_NOTES.name}: linhas {linhas[0]}–{linhas[-1]} da aba 'scenario {n} eval'")
+        elif register:
+            from sed_meta.study import eval_record_for
+            linha = append_eval_row(RESULTS_NOTES, n, eval_record_for(resultado, config))
+            click.echo(f"[9] {RESULTS_NOTES.name}: linha {linha} da aba 'scenario {n} eval'")
+        else:
+            click.echo("[9] aba eval não atualizada (use --register ou --register-all)")
+    except PermissionError:
+        raise click.ClickException(f"Não consegui salvar {RESULTS_NOTES} — está aberto no Excel? "
+                                   "O estudo já foi gravado; feche o arquivo e registre de novo.")
     click.echo(f"Study-ID: {study_id}")
 
 

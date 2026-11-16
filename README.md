@@ -91,7 +91,7 @@ O framework segue o fluxo metodológico da monografia, dividido em fases. O que 
 | 2→3 — Ponte | `preprocessing/pipeline.py` | ✅ Implementado | Split / fit / transform de X e y com separação estrita entre transformação determinística e aprendida |
 | 3 — Metamodelos | `metamodels/` | ✅ Implementado | Quatro famílias: `baseline`, `tree_family`, `gp_family`, `neural_family` |
 | 4 — Avaliação | `evaluation/` | 🧪 Implementado, testado só em dados sintéticos | R²/RMSE/MAE, CV agrupada por ponto, hold-out na escala original, curva de aprendizado, sementes, gatilhos de revisão, registro na aba eval |
-| 5 — XAI | `xai/` | 🧪 Implementado, testado só em dados sintéticos | SHAP (Tree/Kernel), PDP/ICE na escala original, índices de Sobol; incerteza via conformal ainda não |
+| 5 — XAI | `xai/` | 🧪 Implementado, testado só em dados sintéticos | SHAP (Tree/Kernel) e PDP/ICE na escala original (as técnicas da monografia); incerteza via conformal ainda não |
 | 6 — Validação analítica | `theoretical/` | 📝 Previsto | Confronto das importâncias XAI com modelos analíticos |
 | — Orquestração | `cycle/` | 🚧 Esqueleto | Controlador dos Fluxos 1/2/3 |
 | — Rastreabilidade | `logging_/` | 🚧 Esqueleto | Logging estruturado e tracking de execuções (structlog/MLflow) |
@@ -309,7 +309,7 @@ Nenhum metamodelo pode ter R² acima desse valor de forma legítima — se tiver
 |-----------|-----------|-----|
 | DoE / Amostragem | `smt>=2.14` | `DesignSpace` misto + `LHS(criterion="ese")`, `MixedIntegerSamplingMethod` |
 | DoE / Amostragem | `scipy>=1.13` | `scipy.stats.qmc`: LatinHypercube, Sobol |
-| DoE / Sensibilidade | `SALib>=1.5` | Índices de Sobol (triangulação independente do SMT-EX) |
+| DoE / Sensibilidade | `SALib>=1.5` | Índices de Sobol (`xai/sobol.py`; fora do estudo e da aba eval) |
 | DoE / Screening | `pyDOE3>=1.6` | Fatorial fracionado, Plackett-Burman |
 | Interface simulador | `openpyxl>=3.1` | Leitura/escrita do cockpit `.xlsx` |
 | Pré-processamento | `scikit-learn>=1.5` | `ColumnTransformer`, `OneHotEncoder` + metamodelos e CV |
@@ -403,7 +403,7 @@ cd Código
 ../venv/Scripts/python.exe scripts/evaluate_kpi.py configs/scenario_01_serial.yaml --kpi Tempo_total
 ```
 
-Um KPI por execução (regra do projeto). Lê o cockpit mais recente de `promodel_interface/outputs_of_simulation/simulation_results_scenario_0N/` (ou `--cockpit`), separa as execuções completas e o teto de ruído, faz o split agrupado por ponto e, para cada modelo de `--models` (padrão: dummy, poly_ridge, random_forest, xgboost, gp, mlp): busca de hiperparâmetros com CV agrupada (`--n-iter` combinações sorteadas), CV na escala original, hold-out e gatilhos de revisão. Escolhe o de maior R² de validação cruzada, mede curva de aprendizado e sementes, explica com SHAP, PDP/ICE e Sobol e grava tudo em `Código/runs/eval_scenario_0N_<KPI>_<id>/` (`resumo.json`, tabelas `.csv`, `modelo.joblib`, `preprocessing.joblib`). `--register` acrescenta a linha na aba `scenario N eval`. `--fake` avalia uma cópia do cockpit de entrada com resultados falsos, para testar o pipeline antes do ProModel. Passo a passo em `notebooks/evaluate_kpi_walkthrough.ipynb`.
+Um KPI por execução (regra do projeto). Lê o cockpit mais recente de `promodel_interface/outputs_of_simulation/simulation_results_scenario_0N/` (ou `--cockpit`), separa as execuções completas e o teto de ruído, faz o split agrupado por ponto e, para cada modelo de `--models` (padrão: dummy, poly_ridge, random_forest, xgboost, gp, mlp): busca de hiperparâmetros com CV agrupada (`--n-iter` combinações sorteadas), CV na escala original, hold-out e gatilhos de revisão. Escolhe o de maior R² de validação cruzada, mede curva de aprendizado e sementes, explica com SHAP e PDP/ICE e grava tudo em `Código/runs/eval_scenario_0N_<KPI>_<id>/` (`resumo.json`, tabelas `.csv`, `modelo.joblib`, `preprocessing.joblib`). `--register` acrescenta a linha do escolhido na aba `scenario N eval`; `--register-all` acrescenta uma linha por modelo comparado (cada um com sua XAI, numa versão mais leve) e as colunas extras à direita de `comments`. Para lotes: `--n-jobs` (padrão -1, todos os núcleos) e `--no-deepen` (pula curva de aprendizado e sementes). `--fake` avalia uma cópia do cockpit de entrada com resultados falsos, para testar o pipeline antes do ProModel. Passo a passo em `notebooks/evaluate_kpi_walkthrough.ipynb`.
 
 ### Via API do pacote
 
@@ -530,7 +530,7 @@ Um metamodelo, um KPI por vez. Tudo que reparte dados reparte **pontos** (`group
 - `surrogate.py` — `OriginalScaleSurrogate(model, pipe, kpi)`: parâmetros na escala do YAML → previsão na escala do KPI.
 - `shap_values.py` — `compute_shap()` (TreeSHAP para árvores, KernelSHAP para o resto), `shap_importance()`, `importance_by_parameter()` (soma o one-hot de volta por parâmetro).
 - `pdp_ice.py` — `ice_curves()`, `pdp_from_ice()`, `centered_ice()`, `ice_heterogeneity()`; grade pelos limites declarados.
-- `sobol.py` — `sobol_indices()` (SALib, S1 e ST sobre o espaço do YAML).
+- `sobol.py` — `sobol_indices()` (SALib, S1 e ST sobre o espaço do YAML). Não entra no estudo (`study.py`) nem na aba eval: a XAI da monografia é SHAP, PDP e ICE.
 
 Testes em `tests/evaluation/` e `tests/xai/` sobre uma resposta sintética conhecida (`tests/sintetico.py`): as explicações têm de recuperar a ordem de importância verdadeira.
 
