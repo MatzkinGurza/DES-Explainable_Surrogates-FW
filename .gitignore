@@ -1,63 +1,44 @@
 # ============================================================
-# .gitignore — raiz do TCC (Código/ + Monografia/)
+# .gitignore — raiz do TCC
+# Sobem ao git apenas: Código/ (sem o backup e as saídas
+# locais), os PDFs de Monografia/, o README e este arquivo.
 # ============================================================
 
-# --- Ambiente virtual ---------------------------------------
-venv/
-.venv/
-env/
-ENV/
+# --- Tudo na raiz é ignorado, exceto o que é reaberto abaixo --
+/*
+!/.gitignore
+!/README.md
+!/Código/
+!/Monografia/
 
-# --- Monografia: só o PDF final é versionado -----------------
-# Ignora tudo dentro de Monografia/ (fontes .tex, .bib, images/ e
-# todos os artefatos de compilação do LaTeX) e reabre a exceção
-# apenas para main.pdf.
-Monografia/*
-!Monografia/main.pdf
+# --- Monografia: só os PDFs ----------------------------------
+/Monografia/*
+!/Monografia/*.pdf
 
-# --- Saída versionada por execução — não versionar -----------
-runs/
-mlruns/
-outputs/
+# --- Código: backup e saídas locais não sobem ----------------
+/Código/backup/
+/Código/saidas/
 
 # --- Caches --------------------------------------------------
 __pycache__/
 *.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.cache/
 .ipynb_checkpoints/
-.tox/
-.nox/
-.coverage
-.coverage.*
-htmlcov/
-coverage.xml
-*.cover
+.pytest_cache/
 
-# --- Build / packaging ---------------------------------------
-build/
-dist/
-*.egg-info/
-*.egg
-pip-wheel-metadata/
-
-# --- Excel / ProModel: temporários e lockfiles ---------------
+# --- Excel: temporários e lockfiles ---------------------------
 ~$*.xlsx
-~$*.xls
+~$*.xlsm
 *.tmp
 
 # --- Sistema operacional / editores --------------------------
 Thumbs.db
-ehthumbs.db
 Desktop.ini
 .DS_Store
 .idea/
 .vscode/
-*.swp
 
-# --- Documento de trabalho (nao versionado) -----------------
+# --- Documentos de trabalho (não versionados) -----------------
 to_write.md
 rascunho.txt
+context-*
+temp
